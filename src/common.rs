@@ -134,7 +134,7 @@ impl<'a, D: digest::Input + 'a> Hasher for DigestHasher<'a, D> {
 
 impl BlockInner {
     pub fn get_hash(&self) -> BlockHash {
-        let mut hasher = Blake2b::new(8).expect("Unsupported hash length");
+        let mut hasher = Blake2b::new(32).expect("Unsupported hash length");
         self.hash(&mut DigestHasher(&mut hasher));
         let mut output = BlockHash::default();
         hasher.variable_result(&mut output.0).expect("Incorrect hash length");
