@@ -15,13 +15,6 @@ const NET_VERSION: u8 = 0x05;
 const NET_VERSION_MAX: u8 = 0x05;
 const NET_VERSION_MIN: u8 = 0x01;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Network {
-    Test,
-    Beta,
-    Main,
-}
-
 // Note: this does not include the message type.
 // That's wrapped into the Message enum.
 #[allow(dead_code)]
@@ -125,7 +118,8 @@ impl RaiBlocksCodec {
         let mut signature = [0u8; 64];
         cursor.read_exact(&mut signature)?;
         let signature = Signature::from_bytes(&signature).unwrap();
-        let work = cursor.read_u64::<LittleEndian>()?;
+        let mut work = [0u8; 8];
+        cursor.read_exact(&mut work)?;
         let header = BlockHeader { signature, work };
         Ok(Block { header, inner })
     }
@@ -172,7 +166,7 @@ impl RaiBlocksCodec {
             }
         };
         buf.extend(block.header.signature.to_bytes().iter());
-        buf.write_u64::<LittleEndian>(block.header.work).unwrap();
+        buf.extend(block.header.work.into_iter());
     }
 }
 

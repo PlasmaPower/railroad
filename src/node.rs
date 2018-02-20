@@ -21,6 +21,7 @@ use rand::{thread_rng, Rng};
 use utils::ignore_errors;
 use udp_framed;
 
+use common::Network;
 use rai_codec::*;
 
 const IPV4_RESERVED_ADDRESSES: &[(u32, u32)] = &[
@@ -170,7 +171,7 @@ pub fn run(conf: NodeConfig, handle: Handle) -> impl Future<Item = (), Error = i
                     Box::new(stream::iter_ok(to_send)) as _
                 }
                 Message::Block(block) | Message::ConfirmReq(block) => {
-                    debug!("Got block: {:?}", block.get_hash());
+                    debug!("Got block: {:?} (work_valid {})", block.get_hash(), block.work_valid(network));
                     let mut peers = vec![default_addr!(); (node.peers.len() as f64).sqrt() as usize];
                     node.get_rand_peers(&mut peers);
                     let to_send = peers.into_iter().map(move |peer| {

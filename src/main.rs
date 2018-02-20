@@ -30,11 +30,11 @@ extern crate ed25519_dalek;
 extern crate curve25519_dalek;
 
 mod common;
+use common::Network;
 #[macro_use]
 mod utils;
 mod udp_framed;
 mod rai_codec;
-use rai_codec::Network;
 mod node;
 
 #[cfg(test)]
@@ -83,13 +83,10 @@ fn main() {
     };
     let use_official_nodes = !matches.is_present("disable_official_nodes") && network != Network::Test;
     if use_official_nodes {
-        for mut node in "rai.raiblocks.net"
+        for mut node in "rai.raiblocks.net:7075"
             .to_socket_addrs()
             .expect("Failed to lookup official node IPs")
         {
-            if node.port() == 0 {
-                node.set_port(7075);
-            }
             peers.push(node);
         }
     }

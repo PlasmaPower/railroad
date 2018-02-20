@@ -2,9 +2,16 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use blake2::Blake2b;
-use digest::{self, VariableOutput};
+use digest::{self, Input, VariableOutput};
 
-use byteorder::{BigEndian, ByteOrder};
+use byteorder::{BigEndian, LittleEndian, ByteOrder};
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Network {
+    Test,
+    Beta,
+    Main,
+}
 
 fn write_hex(f: &mut fmt::Formatter, bytes: &[u8]) -> fmt::Result {
     for b in bytes.iter() {
@@ -18,7 +25,7 @@ pub use ed25519_dalek::Signature;
 #[derive(Debug, Clone)]
 pub struct BlockHeader {
     pub signature: Signature,
-    pub work: u64,
+    pub work: [u8; 8], // == u64
 }
 
 #[derive(Default, PartialEq, Eq, Clone)]
@@ -142,6 +149,20 @@ impl BlockInner {
     }
 }
 
+pub enum BlockRoot {
+    Block(BlockHash),
+    Account(Account),
+}
+
+impl Into<[u8; 32]> for BlockRoot {
+    fn into(self) -> [u8; 32] {
+        match self {
+            BlockRoot::Block(BlockHash(bytes)) => bytes,
+            BlockRoot::Account(Account(bytes)) => bytes,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Block {
     pub inner: BlockInner,
@@ -151,6 +172,45 @@ pub struct Block {
 impl Block {
     pub fn get_hash(&self) -> BlockHash {
         self.inner.get_hash()
+    }
+
+    #[allow(dead_code)]
+    pub fn root(&self) -> BlockRoot {
+        match self.inner {
+            BlockInner::Send { ref previous, .. } => BlockRoot::Block(previous.clone()),
+            BlockInner::Receive { ref previous, .. } => BlockRoot::Block(previous.clone()),
+            BlockInner::Change { ref previous, .. } => BlockRoot::Block(previous.clone()),
+            BlockInner::Open { ref account, .. } => BlockRoot::Account(account.clone()),
+        }
+    }
+
+    pub fn root_bytes(&self) -> &[u8; 32] {
+        match self.inner {
+            BlockInner::Send { ref previous, .. } => &previous.0,
+            BlockInner::Receive { ref previous, .. } => &previous.0,
+            BlockInner::Change { ref previous, .. } => &previous.0,
+            BlockInner::Open { ref account, .. } => &account.0,
+        }
+    }
+
+    pub fn work_threshold(&self, network: Network) -> u64 {
+        match network {
+            Network::Main | Network::Beta => 0xffffffc000000000,
+            Network::Test => 0xff00000000000000,
+        }
+    }
+
+    pub fn work_value(&self) -> u64 {
+        let mut output = [0u8; 8];
+        let mut hasher = Blake2b::new(output.len()).expect("Unsupported hash length");
+        hasher.process(&self.header.work);
+        hasher.process(self.root_bytes() as _);
+        hasher.variable_result(&mut output).unwrap();
+        LittleEndian::read_u64(&output as _)
+    }
+
+    pub fn work_valid(&self, network: Network) -> bool {
+        self.work_value() > self.work_threshold(network)
     }
 }
 
