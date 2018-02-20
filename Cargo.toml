@@ -1,18 +1,26 @@
 [package]
+authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 name = "railroad"
 version = "0.1.0"
-authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 
 [dependencies]
-clap = "2.29.2"
-futures = "0.1.17"
-tokio-core = "0.1.12"
-byteorder = { version = "1.2.1", features = ["i128"] }
-rand = "0.4.2"
-tokio-timer = "0.1.2"
-log = "0.4.1"
-env_logger = "0.5.2"
-digest = { version = "0.7.2", features = ["std"] }
 blake2 = "0.7.0"
-ed25519-dalek = "0.6.1"
+clap = "2.29.2"
 curve25519-dalek = "0.14.4"
+ed25519-dalek = "0.6.1"
+env_logger = "0.5.2"
+fnv = "1.0.6"
+futures = "0.1.17"
+log = "0.4.1"
+num = "0.1.41"
+rand = "0.4.2"
+tokio-core = "0.1.12"
+tokio-timer = "0.1.2"
+
+[dependencies.byteorder]
+features = ["i128"]
+version = "1.2.1"
+
+[dependencies.digest]
+features = ["std"]
+version = "0.7.2"

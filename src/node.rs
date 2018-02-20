@@ -18,10 +18,12 @@ use futures::sync::mpsc;
 
 use rand::{thread_rng, Rng};
 
+use fnv::FnvHashSet;
+
 use utils::ignore_errors;
 use udp_framed;
 
-use common::Network;
+use common::*;
 use rai_codec::*;
 
 const IPV4_RESERVED_ADDRESSES: &[(u32, u32)] = &[
@@ -92,6 +94,7 @@ impl NodeInfo {
 
 pub struct NodeConfig {
     pub peers: Vec<SocketAddr>,
+    pub vote_weights: HashMap<Account, u128>,
     pub listen_addr: SocketAddr,
     pub network: Network,
 }
@@ -112,6 +115,13 @@ pub fn run(conf: NodeConfig, handle: Handle) -> impl Future<Item = (), Error = i
     ).split();
     let network = conf.network;
     let node_rc = node_base.clone();
+    struct ActiveBlockInfo {
+        block: Block,
+        last_heard_of: Instant,
+        votes: FnvHashSet<Account>,
+        vote_tally: u128,
+    }
+    let mut active_blocks: HashMap<BlockHash, ActiveBlockInfo> = HashMap::new();
     let process_messages = stream
         .map(move |(src, header, msg)| -> Box<Stream<Item=(SocketAddr, Network, Message), Error=io::Error>> {
             if header.network != network {
@@ -171,7 +181,10 @@ pub fn run(conf: NodeConfig, handle: Handle) -> impl Future<Item = (), Error = i
                     Box::new(stream::iter_ok(to_send)) as _
                 }
                 Message::Block(block) | Message::ConfirmReq(block) => {
-                    debug!("Got block: {:?} (work_valid {})", block.get_hash(), block.work_valid(network));
+                    if !block.work_valid(network) {
+                        return Box::new(stream::empty()) as _
+                    }
+                    debug!("Got block: {:?}", block.get_hash());
                     let mut peers = vec![default_addr!(); (node.peers.len() as f64).sqrt() as usize];
                     node.get_rand_peers(&mut peers);
                     let to_send = peers.into_iter().map(move |peer| {

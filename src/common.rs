@@ -1,10 +1,13 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::str::FromStr;
 
 use blake2::Blake2b;
 use digest::{self, Input, VariableOutput};
 
 use byteorder::{BigEndian, LittleEndian, ByteOrder};
+
+use num::BigInt;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Network {
@@ -43,6 +46,9 @@ impl Hash for BlockHash {
     }
 }
 
+pub const ACCOUNT_STR_LOOKUP: &[u8] = b"13456789abcdefghijkmnopqrstuwxyz";
+pub const ACCOUNT_STR_REVERSE: &[u8] = b"~0~1234567~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~89:;<=>?@AB~CDEFGHIJK~LMNO~~~~~";
+
 #[derive(Default, PartialEq, Eq, Clone)]
 pub struct Account(pub [u8; 32]);
 
@@ -55,6 +61,60 @@ impl fmt::Debug for Account {
 impl Hash for Account {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(&self.0);
+    }
+}
+
+#[derive(Debug)]
+pub enum AccountParseError {
+    InvalidCharacter(char),
+    MissingHeader,
+    IncorrectLength(usize),
+    InvalidChecksum,
+}
+
+impl FromStr for Account {
+    type Err = AccountParseError;
+
+    fn from_str(s: &str) -> Result<Account, AccountParseError> {
+        if s.len() != 64 {
+            return Err(AccountParseError::IncorrectLength(s.len()));
+        }
+        let mut bytes = s.bytes();
+        if !(&mut bytes).take(3).eq(b"xrb".iter().cloned()) {
+            return Err(AccountParseError::MissingHeader);
+        }
+        let separator = bytes.next();
+        if separator != Some(b'_') && separator != Some(b'-') {
+            return Err(AccountParseError::MissingHeader);
+        }
+        let mut number = BigInt::default();
+        for byte in bytes {
+            if byte < b'0' || byte > b'~' {
+                return Err(AccountParseError::InvalidCharacter(byte as char));
+            }
+            let lookup = ACCOUNT_STR_REVERSE[(byte - b'0') as usize];
+            if lookup == b'~' {
+                return Err(AccountParseError::InvalidCharacter(byte as char));
+            }
+            let char_num: BigInt = (lookup - b'0').into();
+            number = number << 5;
+            number = number + char_num;
+        }
+        let checksum_limit: BigInt = (1u64 << 40).into();
+        let checksum = (&number % checksum_limit).to_bytes_le().1;
+        let pubkey = (number >> 40).to_bytes_be().1;
+        let mut calc_checksum = [0u8; 5];
+        let mut hasher = Blake2b::new(calc_checksum.len()).expect("Invalid hash length");
+        hasher.process(&pubkey);
+        hasher.variable_result(&mut calc_checksum).unwrap();
+        if &checksum != &calc_checksum {
+            return Err(AccountParseError::InvalidChecksum);
+        }
+        let mut pubkey_arr = [0u8; 32];
+        for (i, b) in pubkey.into_iter().rev().enumerate().take(pubkey_arr.len()) {
+            pubkey_arr[pubkey_arr.len() - i - 1] = b;
+        }
+        Ok(Account(pubkey_arr))
     }
 }
 
