@@ -11,14 +11,14 @@ use tokio_core;
 
 use common::*;
 
-const NET_VERSION: u8 = 0x05;
-const NET_VERSION_MAX: u8 = 0x05;
+const NET_VERSION: u8 = 0x07;
+const NET_VERSION_MAX: u8 = 0x07;
 const NET_VERSION_MIN: u8 = 0x01;
 
 // Note: this does not include the message type.
 // That's wrapped into the Message enum.
 #[allow(dead_code)]
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct MessageHeader {
     pub network: Network,
     pub version_max: u8,
@@ -56,12 +56,11 @@ pub struct RaiBlocksCodec;
 // frontier_req 8
 
 impl RaiBlocksCodec {
-    fn read_block<C: io::Read + io::BufRead>(
+    pub fn read_block<C: io::Read>(
         cursor: &mut C,
-        header: &MessageHeader,
+        block_ty: u8,
     ) -> io::Result<Block> {
-        let ty = (header.extensions & 0x0f00) >> 8;
-        let inner = match ty {
+        let inner = match block_ty {
             2 => {
                 // send
                 let mut previous = BlockHash::default();
@@ -108,6 +107,25 @@ impl RaiBlocksCodec {
                     representative,
                 }
             }
+            6 => {
+                // utx
+                let mut account = Account::default();
+                cursor.read_exact(&mut account.0)?;
+                let mut previous = BlockHash::default();
+                cursor.read_exact(&mut previous.0)?;
+                let mut representative = Account::default();
+                cursor.read_exact(&mut representative.0)?;
+                let balance = cursor.read_u128::<BigEndian>()?;
+                let mut link = [0u8; 32];
+                cursor.read_exact(&mut link)?;
+                BlockInner::Utx {
+                    account,
+                    previous,
+                    representative,
+                    balance,
+                    link,
+                }
+            }
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
@@ -118,22 +136,23 @@ impl RaiBlocksCodec {
         let mut signature = [0u8; 64];
         cursor.read_exact(&mut signature)?;
         let signature = Signature::from_bytes(&signature).unwrap();
-        let mut work = [0u8; 8];
-        cursor.read_exact(&mut work)?;
+        let work = cursor.read_u64::<LittleEndian>()?;
         let header = BlockHeader { signature, work };
         Ok(Block { header, inner })
     }
 
-    fn block_type_num(block: &Block) -> u8 {
+    pub fn block_type_num(block: &Block) -> u8 {
         match block.inner {
             BlockInner::Send { .. } => 2,
             BlockInner::Receive { .. } => 3,
             BlockInner::Open { .. } => 4,
             BlockInner::Change { .. } => 5,
+            BlockInner::Utx { .. } => 6,
         }
     }
 
-    fn write_block(buf: &mut Vec<u8>, block: Block) {
+    /// Does NOT include block type
+    pub fn write_block(buf: &mut Vec<u8>, block: Block) {
         match block.inner {
             BlockInner::Send {
                 previous,
@@ -164,9 +183,30 @@ impl RaiBlocksCodec {
                 buf.extend(previous.0.iter());
                 buf.extend(representative.0.iter());
             }
+            BlockInner::Utx {
+                account,
+                previous,
+                representative,
+                balance,
+                link,
+            } => {
+                buf.extend(account.0.iter());
+                buf.extend(previous.0.iter());
+                buf.extend(representative.0.iter());
+                buf.write_u128::<BigEndian>(balance).unwrap();
+                buf.extend(link.iter());
+            }
         };
         buf.extend(block.header.signature.to_bytes().iter());
-        buf.extend(block.header.work.into_iter());
+        buf.write_u64::<LittleEndian>(block.header.work).unwrap();
+    }
+
+    pub fn network_magic_byte(network: Network) -> u8 {
+        match network {
+            Network::Test => b'A',
+            Network::Beta => b'B',
+            Network::Main => b'C',
+        }
     }
 }
 
@@ -227,21 +267,24 @@ impl tokio_core::net::UdpCodec for RaiBlocksCodec {
             }
             3 => {
                 // block
-                Message::Block(Self::read_block(&mut cursor, &header)?)
+                let ty = (header.extensions & 0x0f00) >> 8;
+                Message::Block(Self::read_block(&mut cursor, ty as u8)?)
             }
             4 => {
                 // confirm_req
-                Message::ConfirmReq(Self::read_block(&mut cursor, &header)?)
+                let ty = (header.extensions & 0x0f00) >> 8;
+                Message::ConfirmReq(Self::read_block(&mut cursor, ty as u8)?)
             }
             5 => {
                 // confirm_ack
+                let ty = (header.extensions & 0x0f00) >> 8;
                 let mut account = Account::default();
                 cursor.read_exact(&mut account.0)?;
                 let mut signature = [0u8; 64];
                 cursor.read_exact(&mut signature)?;
                 let signature = Signature::from_bytes(&signature).unwrap();
                 let sequence = cursor.read_u64::<LittleEndian>()?;
-                let block = Self::read_block(&mut cursor, &header)?;
+                let block = Self::read_block(&mut cursor, ty as u8)?;
                 Message::ConfirmAck {
                     account,
                     signature,
@@ -267,12 +310,7 @@ impl tokio_core::net::UdpCodec for RaiBlocksCodec {
 
     fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> SocketAddr {
         buf.push(b'R');
-        let network_magic_byte = match msg.1 {
-            Network::Test => b'A',
-            Network::Beta => b'B',
-            Network::Main => b'C',
-        };
-        buf.push(network_magic_byte);
+        buf.push(Self::network_magic_byte(msg.1));
         buf.push(NET_VERSION_MAX);
         buf.push(NET_VERSION);
         buf.push(NET_VERSION_MIN);

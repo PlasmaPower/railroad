@@ -12,10 +12,11 @@ env_logger = "0.5.2"
 fnv = "1.0.6"
 futures = "0.1.17"
 log = "0.4.1"
-num = "0.1.41"
 rand = "0.4.2"
 tokio-core = "0.1.12"
 tokio-timer = "0.1.2"
+num-traits = "0.1.41"
+num-bigint = "0.1.41"
 
 [dependencies.byteorder]
 features = ["i128"]

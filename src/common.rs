@@ -1,19 +1,27 @@
 use std::fmt;
+use std::str;
+use std::iter;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 use blake2::Blake2b;
 use digest::{self, Input, VariableOutput};
 
-use byteorder::{BigEndian, LittleEndian, ByteOrder};
+use byteorder::{LittleEndian, BigEndian, ByteOrder};
 
-use num::BigInt;
+use num_bigint::{self, BigInt};
+use num_traits::cast::ToPrimitive;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Network {
     Test,
     Beta,
     Main,
+}
+
+#[macro_export]
+macro_rules! default_addr {
+    () => { ::std::net::SocketAddrV6::new(::std::net::Ipv6Addr::from([0u8; 16]), 0, 0, 0) };
 }
 
 fn write_hex(f: &mut fmt::Formatter, bytes: &[u8]) -> fmt::Result {
@@ -28,7 +36,7 @@ pub use ed25519_dalek::Signature;
 #[derive(Debug, Clone)]
 pub struct BlockHeader {
     pub signature: Signature,
-    pub work: [u8; 8], // == u64
+    pub work: u64,
 }
 
 #[derive(Default, PartialEq, Eq, Clone)]
@@ -40,14 +48,19 @@ impl fmt::Debug for BlockHash {
     }
 }
 
+impl fmt::Display for BlockHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write_hex(f, &self.0)
+    }
+}
+
 impl Hash for BlockHash {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(&self.0);
     }
 }
 
-pub const ACCOUNT_STR_LOOKUP: &[u8] = b"13456789abcdefghijkmnopqrstuwxyz";
-pub const ACCOUNT_STR_REVERSE: &[u8] = b"~0~1234567~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~89:;<=>?@AB~CDEFGHIJK~LMNO~~~~~";
+pub const ACCOUNT_LOOKUP: &[u8] = b"13456789abcdefghijkmnopqrstuwxyz";
 
 #[derive(Default, PartialEq, Eq, Clone)]
 pub struct Account(pub [u8; 32]);
@@ -58,17 +71,36 @@ impl fmt::Debug for Account {
     }
 }
 
-impl Hash for Account {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&self.0);
+impl fmt::Display for Account {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "xrb_")?;
+        let mut reverse_chars = Vec::<u8>::new();
+        let mut check_hash = Blake2b::new(5).unwrap();
+        check_hash.process(&self.0 as &[u8]);
+        let mut check = [0u8; 5];
+        check_hash.variable_result(&mut check).unwrap();
+        let mut ext_addr = self.0.to_vec();
+        ext_addr.extend(check.iter().rev());
+        let mut ext_addr = BigInt::from_bytes_be(num_bigint::Sign::Plus, &ext_addr);
+        for _ in 0..60 {
+            let n: BigInt = (&ext_addr) % 32; // lower 5 bits
+            reverse_chars.push(ACCOUNT_LOOKUP[n.to_usize().unwrap()]);
+            ext_addr = ext_addr >> 5;
+        }
+        let s = reverse_chars
+            .iter()
+            .rev()
+            .map(|&c| c as char)
+            .collect::<String>();
+        write!(f, "{}", s)
     }
 }
 
 #[derive(Debug)]
 pub enum AccountParseError {
+    IncorrectLength,
+    MissingPrefix,
     InvalidCharacter(char),
-    MissingHeader,
-    IncorrectLength(usize),
     InvalidChecksum,
 }
 
@@ -76,45 +108,55 @@ impl FromStr for Account {
     type Err = AccountParseError;
 
     fn from_str(s: &str) -> Result<Account, AccountParseError> {
-        if s.len() != 64 {
-            return Err(AccountParseError::IncorrectLength(s.len()));
+        let mut s_chars = s.chars();
+        let mut ext_pubkey = BigInt::default();
+        if !(&mut s_chars).take(4).eq("xrb_".chars()) {
+            return Err(AccountParseError::MissingPrefix);
         }
-        let mut bytes = s.bytes();
-        if !(&mut bytes).take(3).eq(b"xrb".iter().cloned()) {
-            return Err(AccountParseError::MissingHeader);
-        }
-        let separator = bytes.next();
-        if separator != Some(b'_') && separator != Some(b'-') {
-            return Err(AccountParseError::MissingHeader);
-        }
-        let mut number = BigInt::default();
-        for byte in bytes {
-            if byte < b'0' || byte > b'~' {
-                return Err(AccountParseError::InvalidCharacter(byte as char));
+        let mut i = 4;
+        for ch in s_chars {
+            if i >= 64 {
+                return Err(AccountParseError::IncorrectLength);
             }
-            let lookup = ACCOUNT_STR_REVERSE[(byte - b'0') as usize];
-            if lookup == b'~' {
-                return Err(AccountParseError::InvalidCharacter(byte as char));
-            }
-            let char_num: BigInt = (lookup - b'0').into();
-            number = number << 5;
-            number = number + char_num;
+            let lookup = ACCOUNT_LOOKUP.iter().position(|&c| (c as char) == ch);
+            let byte = match lookup {
+                Some(p) => p as u8,
+                None => {
+                    return Err(AccountParseError::InvalidCharacter(ch));
+                }
+            };
+            ext_pubkey = ext_pubkey << 5;
+            ext_pubkey = ext_pubkey + byte;
+            i += 1;
         }
-        let checksum_limit: BigInt = (1u64 << 40).into();
-        let checksum = (&number % checksum_limit).to_bytes_le().1;
-        let pubkey = (number >> 40).to_bytes_be().1;
-        let mut calc_checksum = [0u8; 5];
-        let mut hasher = Blake2b::new(calc_checksum.len()).expect("Invalid hash length");
-        hasher.process(&pubkey);
-        hasher.variable_result(&mut calc_checksum).unwrap();
-        if &checksum != &calc_checksum {
+        if i != 64 {
+            return Err(AccountParseError::IncorrectLength);
+        }
+        let ext_pubkey = ext_pubkey.to_bytes_le().1;
+        let ext_pubkey: Vec<u8> = iter::repeat(0)
+            .take(37 - ext_pubkey.len())
+            .chain(ext_pubkey.into_iter().rev())
+            .collect();
+        let mut pubkey_bytes = [0u8; 32];
+        pubkey_bytes.clone_from_slice(&ext_pubkey[..32]);
+        let mut checksum_given = [0u8; 5];
+        checksum_given.clone_from_slice(&ext_pubkey[32..]);
+        let mut checksum_calc = [0u8; 5];
+        let mut hasher = Blake2b::new(checksum_calc.len()).unwrap();
+        hasher.process(&pubkey_bytes as &[u8]);
+        hasher
+            .variable_result(&mut checksum_calc as &mut [u8])
+            .unwrap();
+        if checksum_given.into_iter().rev().ne(checksum_calc.into_iter()) {
             return Err(AccountParseError::InvalidChecksum);
         }
-        let mut pubkey_arr = [0u8; 32];
-        for (i, b) in pubkey.into_iter().rev().enumerate().take(pubkey_arr.len()) {
-            pubkey_arr[pubkey_arr.len() - i - 1] = b;
-        }
-        Ok(Account(pubkey_arr))
+        Ok(Account(pubkey_bytes))
+    }
+}
+
+impl Hash for Account {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.0);
     }
 }
 
@@ -143,6 +185,15 @@ pub enum BlockInner {
     Change {
         previous: BlockHash,
         representative: Account,
+    },
+    /// A universal transaction which contains the account state.
+    Utx {
+        account: Account,
+        previous: BlockHash,
+        representative: Account,
+        balance: u128,
+        /// Link field contains source block_hash if receiving, destination account if sending
+        link: [u8; 32],
     },
 }
 
@@ -183,6 +234,23 @@ impl Hash for BlockInner {
                 previous.hash(state);
                 representative.hash(state);
             }
+            BlockInner::Utx {
+                ref account,
+                ref previous,
+                ref representative,
+                ref balance,
+                ref link,
+            } => {
+                state.write(&[0u8; 31]);
+                state.write(&[6u8]); // block type code
+                account.hash(state);
+                previous.hash(state);
+                representative.hash(state);
+                let mut buf = [0u8; 16];
+                BigEndian::write_u128(&mut buf, *balance);
+                state.write(&buf);
+                state.write(link);
+            }
         }
     }
 }
@@ -204,21 +272,38 @@ impl BlockInner {
         let mut hasher = Blake2b::new(32).expect("Unsupported hash length");
         self.hash(&mut DigestHasher(&mut hasher));
         let mut output = BlockHash::default();
-        hasher.variable_result(&mut output.0).expect("Incorrect hash length");
+        hasher
+            .variable_result(&mut output.0)
+            .expect("Incorrect hash length");
         output
     }
-}
 
-pub enum BlockRoot {
-    Block(BlockHash),
-    Account(Account),
-}
+    pub fn previous(&self) -> Option<&BlockHash> {
+        match *self {
+            BlockInner::Send { ref previous, .. } => Some(previous),
+            BlockInner::Receive { ref previous, .. } => Some(previous),
+            BlockInner::Change { ref previous, .. } => Some(previous),
+            BlockInner::Open { .. } => None,
+            BlockInner::Utx { ref previous, .. } => {
+                let is_zero = previous.0.iter().all(|&x| x == 0);
+                if is_zero {
+                    None
+                } else {
+                    Some(previous)
+                }
+            }
+        }
+    }
 
-impl Into<[u8; 32]> for BlockRoot {
-    fn into(self) -> [u8; 32] {
-        match self {
-            BlockRoot::Block(BlockHash(bytes)) => bytes,
-            BlockRoot::Account(Account(bytes)) => bytes,
+    pub fn root_bytes(&self) -> &[u8; 32] {
+        match *self {
+            BlockInner::Send { ref previous, .. } => &previous.0,
+            BlockInner::Receive { ref previous, .. } => &previous.0,
+            BlockInner::Change { ref previous, .. } => &previous.0,
+            BlockInner::Open { ref account, .. } => &account.0,
+            BlockInner::Utx { ref account, .. } => {
+                self.previous().map(|h| &h.0).unwrap_or(&account.0)
+            }
         }
     }
 }
@@ -234,23 +319,12 @@ impl Block {
         self.inner.get_hash()
     }
 
-    #[allow(dead_code)]
-    pub fn root(&self) -> BlockRoot {
-        match self.inner {
-            BlockInner::Send { ref previous, .. } => BlockRoot::Block(previous.clone()),
-            BlockInner::Receive { ref previous, .. } => BlockRoot::Block(previous.clone()),
-            BlockInner::Change { ref previous, .. } => BlockRoot::Block(previous.clone()),
-            BlockInner::Open { ref account, .. } => BlockRoot::Account(account.clone()),
-        }
+    pub fn previous(&self) -> Option<&BlockHash> {
+        self.inner.previous()
     }
 
     pub fn root_bytes(&self) -> &[u8; 32] {
-        match self.inner {
-            BlockInner::Send { ref previous, .. } => &previous.0,
-            BlockInner::Receive { ref previous, .. } => &previous.0,
-            BlockInner::Change { ref previous, .. } => &previous.0,
-            BlockInner::Open { ref account, .. } => &account.0,
-        }
+        self.inner.root_bytes()
     }
 
     pub fn work_threshold(&self, network: Network) -> u64 {
@@ -261,12 +335,13 @@ impl Block {
     }
 
     pub fn work_value(&self) -> u64 {
-        let mut output = [0u8; 8];
-        let mut hasher = Blake2b::new(output.len()).expect("Unsupported hash length");
-        hasher.process(&self.header.work);
+        let mut buf = [0u8; 8];
+        let mut hasher = Blake2b::new(buf.len()).expect("Unsupported hash length");
+        LittleEndian::write_u64(&mut buf, self.header.work);
+        hasher.process(&buf);
         hasher.process(self.root_bytes() as _);
-        hasher.variable_result(&mut output).unwrap();
-        LittleEndian::read_u64(&output as _)
+        hasher.variable_result(&mut buf).unwrap();
+        LittleEndian::read_u64(&buf as _)
     }
 
     pub fn work_valid(&self, network: Network) -> bool {

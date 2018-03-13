@@ -30,7 +30,8 @@ extern crate rand;
 extern crate ed25519_dalek;
 extern crate curve25519_dalek;
 
-extern crate num;
+extern crate num_bigint;
+extern crate num_traits;
 
 extern crate fnv;
 
