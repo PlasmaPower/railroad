@@ -368,7 +368,7 @@ impl codec::Encoder for RaiBlocksCodec {
                 buf.put_slice(&[5]);
                 let type_num = Self::block_type_num(&block) as u16;
                 buf.put_u16::<LittleEndian>((type_num & 0x0f) << 8);
-                buf.reserve(32 + 64);
+                buf.reserve(32 + 64 + 8);
                 buf.put_slice(&account.0);
                 buf.put_slice(&signature.to_bytes());
                 buf.put_u64::<LittleEndian>(sequence);
