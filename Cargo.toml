@@ -4,24 +4,26 @@ name = "railroad"
 version = "0.1.0"
 
 [dependencies]
-blake2 = "0.7.0"
-clap = "2.29.2"
-curve25519-dalek = "0.14.4"
-ed25519-dalek = "0.6.1"
-env_logger = "0.5.2"
-fnv = "1.0.6"
-futures = "0.1.17"
-log = "0.4.1"
-rand = "0.4.2"
-tokio-core = "0.1.12"
-tokio-timer = "0.1.2"
-num-traits = "0.1.41"
-num-bigint = "0.1.41"
+blake2 = "0.7"
+clap = "2.29"
+curve25519-dalek = "0.14"
+ed25519-dalek = "0.6"
+env_logger = "0.5"
+fnv = "1.0"
+futures = "0.1"
+log = "0.4"
+rand = "0.4"
+tokio = "0.1"
+tokio-timer = "0.1"
+num-traits = "0.1"
+num-bigint = "0.1"
+tokio-io = "0.1"
+bytes = "0.4"
 
 [dependencies.byteorder]
 features = ["i128"]
-version = "1.2.1"
+version = "1.2"
 
 [dependencies.digest]
 features = ["std"]
-version = "0.7.2"
+version = "0.7"

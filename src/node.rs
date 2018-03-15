@@ -8,8 +8,9 @@ use std::net::SocketAddr;
 use std::net::SocketAddrV6;
 use std::time::Duration;
 
-use tokio_core::net::UdpSocket;
-use tokio_core::reactor::Handle;
+use tokio;
+use tokio::net::UdpSocket;
+use tokio::executor::current_thread;
 
 use tokio_timer::Timer;
 
@@ -99,7 +100,7 @@ pub struct NodeConfig {
     pub network: Network,
 }
 
-pub fn run(conf: NodeConfig, handle: Handle) -> impl Future<Item = (), Error = io::Error> {
+pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = io::Error> {
     let node_base = Rc::new(RefCell::new(NodeInfo {
         peers: conf.peers
             .into_iter()
@@ -109,8 +110,8 @@ pub fn run(conf: NodeConfig, handle: Handle) -> impl Future<Item = (), Error = i
         rand_peers: Default::default(),
         new_peer_backoff: HashMap::new(),
     }));
-    let (sink, stream) = udp_framed::new(
-        UdpSocket::bind(&conf.listen_addr, &handle).expect("Failed to listen for peers"),
+    let (sink, stream) = udp_framed::UdpFramed::new(
+        UdpSocket::bind(&conf.listen_addr).expect("Failed to listen for peers"),
         RaiBlocksCodec,
     ).split();
     let network = conf.network;
@@ -122,84 +123,97 @@ pub fn run(conf: NodeConfig, handle: Handle) -> impl Future<Item = (), Error = i
         vote_tally: u128,
     }
     let mut active_blocks: HashMap<BlockHash, ActiveBlockInfo> = HashMap::new();
-    let process_messages = stream
-        .map(move |(src, header, msg)| -> Box<Stream<Item=(SocketAddr, Network, Message), Error=io::Error>> {
-            if header.network != network {
-                warn!("Ignoring message from {:?} network", header.network);
-                return Box::new(stream::empty());
-            }
-            let mut node = node_rc.borrow_mut();
-            node.contacted(src);
-            trace!("Got message from {:?}: {:?}", src, msg);
-            match msg {
-                Message::Keepalive(new_peers) => {
-                    let node_rc = node_rc.clone();
-                    let to_send = new_peers.to_vec()
-                        .into_iter()
-                        .filter_map(move |new_peer| {
-                            let mut node = node_rc.borrow_mut();
-                            match node.new_peer_backoff.entry(new_peer) {
-                                hash_map::Entry::Occupied(mut entry) => {
-                                    let entry = entry.get_mut();
-                                    if *entry
-                                        > Instant::now() - Duration::from_secs(KEEPALIVE_CUTOFF)
+    let process_messages =
+        stream
+            .map(
+                move |((header, msg), src)| -> Box<
+                    Stream<Item = ((Network, Message), SocketAddr), Error = io::Error>,
+                > {
+                    if header.network != network {
+                        warn!("Ignoring message from {:?} network", header.network);
+                        return Box::new(stream::empty());
+                    }
+                    let mut node = node_rc.borrow_mut();
+                    node.contacted(src);
+                    trace!("Got message from {:?}: {:?}", src, msg);
+                    match msg {
+                        Message::Keepalive(new_peers) => {
+                            let node_rc = node_rc.clone();
+                            let to_send =
+                                new_peers.to_vec().into_iter().filter_map(move |new_peer| {
+                                    let mut node = node_rc.borrow_mut();
+                                    match node.new_peer_backoff.entry(new_peer) {
+                                        hash_map::Entry::Occupied(mut entry) => {
+                                            let entry = entry.get_mut();
+                                            if *entry
+                                                > Instant::now()
+                                                    - Duration::from_secs(KEEPALIVE_CUTOFF)
+                                            {
+                                                return None;
+                                            }
+                                            *entry = Instant::now();
+                                        }
+                                        hash_map::Entry::Vacant(entry) => {
+                                            entry.insert(Instant::now());
+                                        }
+                                    }
+                                    if node.peers.contains_key(&new_peer) {
+                                        return None;
+                                    }
+                                    let ip = new_peer.ip().clone();
+                                    if ip.octets().iter().all(|&x| x == 0) {
+                                        return None;
+                                    }
+                                    if new_peer.port() == 0 {
+                                        return None;
+                                    }
+                                    if ip.is_unspecified() || ip.is_loopback() || ip.is_multicast()
                                     {
                                         return None;
                                     }
-                                    *entry = Instant::now();
-                                }
-                                hash_map::Entry::Vacant(entry) => {
-                                    entry.insert(Instant::now());
-                                }
-                            }
-                            if node.peers.contains_key(&new_peer) {
-                                return None;
-                            }
-                            let ip = new_peer.ip().clone();
-                            if ip.octets().iter().all(|&x| x == 0) {
-                                return None;
-                            }
-                            if new_peer.port() == 0 {
-                                return None;
-                            }
-                            if ip.is_unspecified() || ip.is_loopback() || ip.is_multicast() {
-                                return None;
-                            }
-                            if let Some(ip) = ip.to_ipv4() {
-                                let ip: u32 = ip.into();
-                                for &(start, end) in IPV4_RESERVED_ADDRESSES.iter() {
-                                    if ip >= start && ip <= end {
-                                        return None;
+                                    if let Some(ip) = ip.to_ipv4() {
+                                        let ip: u32 = ip.into();
+                                        for &(start, end) in IPV4_RESERVED_ADDRESSES.iter() {
+                                            if ip >= start && ip <= end {
+                                                return None;
+                                            }
+                                        }
                                     }
-                                }
+                                    // TODO some IPv6 reserved addresses missing
+                                    let mut rand_peers = [default_addr!(); 8];
+                                    node.get_rand_peers(&mut rand_peers);
+                                    Some((
+                                        (network, Message::Keepalive(rand_peers)),
+                                        SocketAddr::V6(new_peer),
+                                    ))
+                                });
+                            Box::new(stream::iter_ok(to_send)) as _
+                        }
+                        Message::Block(block) | Message::ConfirmReq(block) => {
+                            if !block.work_valid(network) {
+                                return Box::new(stream::empty()) as _;
                             }
-                            // TODO some IPv6 reserved addresses missing
-                            let mut rand_peers = [default_addr!(); 8];
-                            node.get_rand_peers(&mut rand_peers);
-                            Some((SocketAddr::V6(new_peer), network, Message::Keepalive(rand_peers)))
-                        });
-                    Box::new(stream::iter_ok(to_send)) as _
-                }
-                Message::Block(block) | Message::ConfirmReq(block) => {
-                    if !block.work_valid(network) {
-                        return Box::new(stream::empty()) as _
+                            debug!("Got block: {:?}", block.get_hash());
+                            let mut peers =
+                                vec![default_addr!(); (node.peers.len() as f64).sqrt() as usize];
+                            node.get_rand_peers(&mut peers);
+                            let to_send = peers.into_iter().map(move |peer| {
+                                (
+                                    (network, Message::Block(block.clone())),
+                                    SocketAddr::V6(peer),
+                                )
+                            });
+                            Box::new(stream::iter_ok(to_send)) as _
+                        }
+                        Message::ConfirmAck { .. } => {
+                            // TODO processing
+                            // TODO rebroadcasting
+                            Box::new(stream::empty()) as _
+                        }
                     }
-                    debug!("Got block: {:?}", block.get_hash());
-                    let mut peers = vec![default_addr!(); (node.peers.len() as f64).sqrt() as usize];
-                    node.get_rand_peers(&mut peers);
-                    let to_send = peers.into_iter().map(move |peer| {
-                        (SocketAddr::V6(peer), network, Message::Block(block.clone()))
-                    });
-                    Box::new(stream::iter_ok(to_send)) as _
-                }
-                Message::ConfirmAck { .. } => {
-                    // TODO processing
-                    // TODO rebroadcasting
-                    Box::new(stream::empty()) as _
-                }
-            }
-        })
-        .flatten();
+                },
+            )
+            .flatten();
     let timer = Timer::default();
     let node_rc = node_base.clone();
     let keepalive = stream::once(Ok(()))
@@ -216,21 +230,24 @@ pub fn run(conf: NodeConfig, handle: Handle) -> impl Future<Item = (), Error = i
             for (addr, _) in node.peers.iter() {
                 let mut rand_peers = [default_addr!(); 8];
                 node.get_rand_peers(&mut rand_peers);
-                keepalives.push((SocketAddr::V6(*addr), network, Message::Keepalive(rand_peers)));
+                keepalives.push((
+                    (network, Message::Keepalive(rand_peers)),
+                    SocketAddr::V6(*addr),
+                ));
             }
             stream::iter_ok::<_, io::Error>(keepalives.into_iter())
         })
         .flatten();
     let sock_channel = mpsc::channel(2048);
     let sock_send = sock_channel.0.clone();
-    handle.spawn(
+    current_thread::spawn(
         sock_send
             .send_all(ignore_errors(process_messages))
             .map(|_| ())
             .map_err(|_| ()),
     );
     let sock_send = sock_channel.0.clone();
-    handle.spawn(
+    current_thread::spawn(
         sock_send
             .send_all(ignore_errors(keepalive))
             .map(|_| ())

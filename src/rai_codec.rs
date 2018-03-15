@@ -2,18 +2,35 @@ use std::io;
 use std::io::prelude::*;
 use std::io::Cursor;
 use std::net;
-use std::net::SocketAddr;
 use std::net::SocketAddrV6;
 
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 
-use tokio_core;
+use tokio_io::codec;
+
+use bytes::{BufMut, BytesMut};
 
 use common::*;
 
 const NET_VERSION: u8 = 0x07;
 const NET_VERSION_MAX: u8 = 0x07;
 const NET_VERSION_MIN: u8 = 0x01;
+
+trait BufMutExt: BufMut {
+    fn put_i128<T: ByteOrder>(&mut self, n: i128) {
+        let mut buf = [0u8; 16];
+        T::write_i128(&mut buf, n);
+        self.put_slice(&buf)
+    }
+
+    fn put_u128<T: ByteOrder>(&mut self, n: u128) {
+        let mut buf = [0u8; 16];
+        T::write_u128(&mut buf, n);
+        self.put_slice(&buf)
+    }
+}
+
+impl BufMutExt for BytesMut {}
 
 // Note: this does not include the message type.
 // That's wrapped into the Message enum.
@@ -56,10 +73,7 @@ pub struct RaiBlocksCodec;
 // frontier_req 8
 
 impl RaiBlocksCodec {
-    pub fn read_block<C: io::Read>(
-        cursor: &mut C,
-        block_ty: u8,
-    ) -> io::Result<Block> {
+    pub fn read_block<C: io::Read>(cursor: &mut C, block_ty: u8) -> io::Result<Block> {
         let inner = match block_ty {
             2 => {
                 // send
@@ -152,36 +166,37 @@ impl RaiBlocksCodec {
     }
 
     /// Does NOT include block type
-    pub fn write_block(buf: &mut Vec<u8>, block: Block) {
+    pub fn write_block(buf: &mut BytesMut, block: Block) {
+        buf.reserve(block.size());
         match block.inner {
             BlockInner::Send {
                 previous,
                 destination,
                 balance,
             } => {
-                buf.extend(previous.0.iter());
-                buf.extend(destination.0.iter());
-                buf.write_u128::<BigEndian>(balance).unwrap();
+                buf.put_slice(&previous.0);
+                buf.put_slice(&destination.0);
+                buf.put_u128::<BigEndian>(balance);
             }
             BlockInner::Receive { previous, source } => {
-                buf.extend(previous.0.iter());
-                buf.extend(source.0.iter());
+                buf.put_slice(&previous.0);
+                buf.put_slice(&source.0);
             }
             BlockInner::Open {
                 source,
                 representative,
                 account,
             } => {
-                buf.extend(source.0.iter());
-                buf.extend(representative.0.iter());
-                buf.extend(account.0.iter());
+                buf.put_slice(&source.0);
+                buf.put_slice(&representative.0);
+                buf.put_slice(&account.0);
             }
             BlockInner::Change {
                 previous,
                 representative,
             } => {
-                buf.extend(previous.0.iter());
-                buf.extend(representative.0.iter());
+                buf.put_slice(&previous.0);
+                buf.put_slice(&representative.0);
             }
             BlockInner::Utx {
                 account,
@@ -190,15 +205,15 @@ impl RaiBlocksCodec {
                 balance,
                 link,
             } => {
-                buf.extend(account.0.iter());
-                buf.extend(previous.0.iter());
-                buf.extend(representative.0.iter());
-                buf.write_u128::<BigEndian>(balance).unwrap();
-                buf.extend(link.iter());
+                buf.put_slice(&account.0);
+                buf.put_slice(&previous.0);
+                buf.put_slice(&representative.0);
+                buf.put_u128::<BigEndian>(balance);
+                buf.put_slice(&link as &[u8]);
             }
         };
-        buf.extend(block.header.signature.to_bytes().iter());
-        buf.write_u64::<LittleEndian>(block.header.work).unwrap();
+        buf.put_slice(&block.header.signature.to_bytes() as &[u8]);
+        buf.put_u64::<LittleEndian>(block.header.work);
     }
 
     pub fn network_magic_byte(network: Network) -> u8 {
@@ -210,11 +225,11 @@ impl RaiBlocksCodec {
     }
 }
 
-impl tokio_core::net::UdpCodec for RaiBlocksCodec {
-    type In = (SocketAddr, MessageHeader, Message);
-    type Out = (SocketAddr, Network, Message);
+impl codec::Decoder for RaiBlocksCodec {
+    type Item = (MessageHeader, Message);
+    type Error = io::Error;
 
-    fn decode(&mut self, src: &SocketAddr, buf: &[u8]) -> io::Result<Self::In> {
+    fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<Self::Item>> {
         let mut cursor = Cursor::new(buf);
         if cursor.read_u8()? != b'R' {
             return Err(io::Error::new(io::ErrorKind::Other, "invalid magic number"));
@@ -305,36 +320,43 @@ impl tokio_core::net::UdpCodec for RaiBlocksCodec {
                 ))
             }
         };
-        Ok((*src, header, message))
+        Ok(Some((header, message)))
     }
+}
 
-    fn encode(&mut self, msg: Self::Out, buf: &mut Vec<u8>) -> SocketAddr {
-        buf.push(b'R');
-        buf.push(Self::network_magic_byte(msg.1));
-        buf.push(NET_VERSION_MAX);
-        buf.push(NET_VERSION);
-        buf.push(NET_VERSION_MIN);
-        match msg.2 {
+impl codec::Encoder for RaiBlocksCodec {
+    type Item = (Network, Message);
+    type Error = io::Error;
+
+    fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
+        buf.reserve(8); // header (including extensions)
+        buf.put_slice(&[
+            b'R',
+            Self::network_magic_byte(msg.0),
+            NET_VERSION_MAX,
+            NET_VERSION,
+            NET_VERSION_MIN,
+        ]);
+        match msg.1 {
             Message::Keepalive(peers) => {
-                buf.push(2);
-                buf.extend(&[0, 0]); // extensions
+                buf.put_slice(&[2]);
+                buf.put_slice(&[0, 0]); // extensions
+                buf.reserve(peers.len() * (16 + 2));
                 for peer in peers.iter() {
-                    buf.extend(peer.ip().octets().iter());
-                    buf.write_u16::<LittleEndian>(peer.port()).unwrap();
+                    buf.put_slice(&peer.ip().octets());
+                    buf.put_u16::<LittleEndian>(peer.port());
                 }
             }
             Message::Block(block) => {
-                buf.push(3);
+                buf.put_slice(&[3]);
                 let type_num = Self::block_type_num(&block) as u16;
-                buf.write_u16::<LittleEndian>((type_num & 0x0f) << 8)
-                    .unwrap();
+                buf.put_u16::<LittleEndian>((type_num & 0x0f) << 8);
                 Self::write_block(buf, block);
             }
             Message::ConfirmReq(block) => {
-                buf.push(4);
+                buf.put_slice(&[4]);
                 let type_num = Self::block_type_num(&block) as u16;
-                buf.write_u16::<LittleEndian>((type_num & 0x0f) << 8)
-                    .unwrap();
+                buf.put_u16::<LittleEndian>((type_num & 0x0f) << 8);
                 Self::write_block(buf, block);
             }
             Message::ConfirmAck {
@@ -343,16 +365,16 @@ impl tokio_core::net::UdpCodec for RaiBlocksCodec {
                 sequence,
                 block,
             } => {
-                buf.push(5);
+                buf.put_slice(&[5]);
                 let type_num = Self::block_type_num(&block) as u16;
-                buf.write_u16::<LittleEndian>((type_num & 0x0f) << 8)
-                    .unwrap();
-                buf.extend(account.0.iter());
-                buf.extend(signature.to_bytes().iter());
-                buf.write_u64::<LittleEndian>(sequence).unwrap();
+                buf.put_u16::<LittleEndian>((type_num & 0x0f) << 8);
+                buf.reserve(32 + 64);
+                buf.put_slice(&account.0);
+                buf.put_slice(&signature.to_bytes());
+                buf.put_u64::<LittleEndian>(sequence);
                 Self::write_block(buf, block);
             }
         }
-        msg.0
+        Ok(())
     }
 }

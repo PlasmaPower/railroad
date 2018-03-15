@@ -7,7 +7,7 @@ use std::str::FromStr;
 use blake2::Blake2b;
 use digest::{self, Input, VariableOutput};
 
-use byteorder::{LittleEndian, BigEndian, ByteOrder};
+use byteorder::{BigEndian, ByteOrder, LittleEndian};
 
 use num_bigint::{self, BigInt};
 use num_traits::cast::ToPrimitive;
@@ -147,7 +147,11 @@ impl FromStr for Account {
         hasher
             .variable_result(&mut checksum_calc as &mut [u8])
             .unwrap();
-        if checksum_given.into_iter().rev().ne(checksum_calc.into_iter()) {
+        if checksum_given
+            .into_iter()
+            .rev()
+            .ne(checksum_calc.into_iter())
+        {
             return Err(AccountParseError::InvalidChecksum);
         }
         Ok(Account(pubkey_bytes))
@@ -306,6 +310,16 @@ impl BlockInner {
             }
         }
     }
+
+    pub fn size(&self) -> usize {
+        match *self {
+            BlockInner::Send { .. } => 32 + 32 + 16,
+            BlockInner::Receive { .. } => 32 + 32,
+            BlockInner::Change { .. } => 32 + 32,
+            BlockInner::Open { .. } => 32 + 32 + 32,
+            BlockInner::Utx { .. } => 32 + 32 + 32 + 16 + 32,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -346,6 +360,11 @@ impl Block {
 
     pub fn work_valid(&self, network: Network) -> bool {
         self.work_value() > self.work_threshold(network)
+    }
+
+    pub fn size(&self) -> usize {
+        // inner + sig + work
+        self.inner.size() + 64 + 8
     }
 }
 

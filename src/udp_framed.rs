@@ -1,110 +1,151 @@
-//! A custom UDPFramed which ignores sending errors.
-
-#![allow(dead_code)]
-
 use std::io;
-use std::net::{SocketAddr, Ipv4Addr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-use futures::{Async, Poll, Stream, Sink, StartSend, AsyncSink};
+use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
 
-use tokio_core::net::{UdpSocket, UdpCodec};
+use tokio::net::UdpSocket;
+
+use tokio_io::codec::{Decoder, Encoder};
+use bytes::{BufMut, BytesMut};
 
 /// A unified `Stream` and `Sink` interface to an underlying `UdpSocket`, using
-/// the `UdpCodec` trait to encode and decode frames.
+/// the `Encoder` and `Decoder` traits to encode and decode frames.
 ///
-/// You can acquire a `UdpFramed` instance by using the `UdpSocket::framed`
-/// adapter.
+/// Raw UDP sockets work with datagrams, but higher-level code usually wants to
+/// batch these into meaningful chunks, called "frames". This method layers
+/// framing on top of this socket by using the `Encoder` and `Decoder` traits to
+/// handle encoding and decoding of messages frames. Note that the incoming and
+/// outgoing frame types may be distinct.
+///
+/// This function returns a *single* object that is both `Stream` and `Sink`;
+/// grouping this into a single object is often useful for layering things which
+/// require both read and write access to the underlying object.
+///
+/// If you want to work more directly with the streams and sink, consider
+/// calling `split` on the `UdpFramed` returned by this method, which will break
+/// them into separate objects, allowing them to interact more easily.
 #[must_use = "sinks do nothing unless polled"]
+#[derive(Debug)]
 pub struct UdpFramed<C> {
     socket: UdpSocket,
     codec: C,
-    rd: Vec<u8>,
-    wr: Vec<u8>,
+    rd: BytesMut,
+    wr: BytesMut,
     out_addr: SocketAddr,
     flushed: bool,
 }
 
-impl<C: UdpCodec> Stream for UdpFramed<C> {
-    type Item = C::In;
-    type Error = io::Error;
+impl<C: Decoder> Stream for UdpFramed<C> {
+    type Item = (C::Item, SocketAddr);
+    type Error = C::Error;
 
-    fn poll(&mut self) -> Poll<Option<C::In>, io::Error> {
-        let (n, addr) = try_nb!(self.socket.recv_from(&mut self.rd));
+    fn poll(&mut self) -> Poll<Option<(Self::Item)>, Self::Error> {
+        self.rd.reserve(INITIAL_RD_CAPACITY);
+
+        let (n, addr) = unsafe {
+            // Read into the buffer without having to initialize the memory.
+            let (n, addr) = try_ready!(self.socket.poll_recv_from(self.rd.bytes_mut()));
+            self.rd.advance_mut(n);
+            (n, addr)
+        };
         trace!("received {} bytes, decoding", n);
-        let frame = try!(self.codec.decode(&addr, &self.rd[..n]));
+        let frame_res = self.codec.decode(&mut self.rd);
+        self.rd.clear();
+        let frame = frame_res?;
+        let result = frame.map(|frame| (frame, addr)); // frame -> (frame, addr)
         trace!("frame decoded from buffer");
-        Ok(Async::Ready(Some(frame)))
+        Ok(Async::Ready(result))
     }
 }
 
-impl<C: UdpCodec> Sink for UdpFramed<C> {
-    type SinkItem = C::Out;
-    type SinkError = io::Error;
+impl<C: Encoder> Sink for UdpFramed<C> {
+    type SinkItem = (C::Item, SocketAddr);
+    type SinkError = C::Error;
 
-    fn start_send(&mut self, item: C::Out) -> StartSend<C::Out, io::Error> {
+    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
         trace!("sending frame");
 
         if !self.flushed {
             match self.poll_complete() {
-                Ok(Async::Ready(())) => {},
+                Ok(Async::Ready(())) => {}
                 _ => return Ok(AsyncSink::NotReady(item)),
             }
         }
 
-        self.out_addr = self.codec.encode(item, &mut self.wr);
+        let (frame, out_addr) = item;
+        self.codec.encode(frame, &mut self.wr)?;
+        self.out_addr = out_addr;
         self.flushed = false;
         trace!("frame encoded; length={}", self.wr.len());
 
         Ok(AsyncSink::Ready)
     }
 
-    fn poll_complete(&mut self) -> Poll<(), io::Error> {
+    fn poll_complete(&mut self) -> Poll<(), C::Error> {
         if self.flushed {
-            return Ok(Async::Ready(()))
+            return Ok(Async::Ready(()));
         }
 
         trace!("flushing frame; length={}", self.wr.len());
-        match self.socket.send_to(&self.wr, &self.out_addr) {
-            Ok(n) => {
-                trace!("Written {}", n);
-            },
+        let n = match self.socket.poll_send_to(&self.wr, &self.out_addr) {
+            Ok(Async::Ready(n)) => n,
+            Ok(Async::NotReady) => return Ok(Async::NotReady),
             Err(e) => {
                 if e.kind() == ::std::io::ErrorKind::WouldBlock {
                     return Ok(Async::NotReady);
                 }
                 debug!("Error sending frame: {:?}", e);
+                return Ok(Async::Ready(()));
             }
-        }
+        };
+        trace!("written {}", n);
 
+        let wrote_all = n == self.wr.len();
         self.wr.clear();
         self.flushed = true;
 
-        Ok(Async::Ready(()))
+        if wrote_all {
+            Ok(Async::Ready(()))
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "failed to write entire datagram to socket",
+            ).into())
+        }
     }
 
-    fn close(&mut self) -> Poll<(), io::Error> {
+    fn close(&mut self) -> Poll<(), C::Error> {
         try_ready!(self.poll_complete());
         Ok(().into())
     }
 }
 
-pub fn new<C: UdpCodec>(socket: UdpSocket, codec: C) -> UdpFramed<C> {
-    UdpFramed {
-        socket: socket,
-        codec: codec,
-        out_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)),
-        rd: vec![0; 64 * 1024],
-        wr: Vec::with_capacity(8 * 1024),
-        flushed: true,
-    }
-}
+const INITIAL_RD_CAPACITY: usize = 64 * 1024;
+const INITIAL_WR_CAPACITY: usize = 8 * 1024;
 
+#[allow(dead_code)]
 impl<C> UdpFramed<C> {
+    /// Create a new `UdpFramed` backed by the given socket and codec.
+    ///
+    /// See struct level documention for more details.
+    pub fn new(socket: UdpSocket, codec: C) -> UdpFramed<C> {
+        UdpFramed {
+            socket: socket,
+            codec: codec,
+            out_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)),
+            rd: BytesMut::with_capacity(INITIAL_RD_CAPACITY),
+            wr: BytesMut::with_capacity(INITIAL_WR_CAPACITY),
+            flushed: true,
+        }
+    }
+
     /// Returns a reference to the underlying I/O stream wrapped by `Framed`.
     ///
-    /// Note that care should be taken to not tamper with the underlying stream
-    /// of data coming in as it may corrupt the stream of frames otherwise being
-    /// worked with.
+    /// # Note
+    ///
+    /// Care should be taken to not tamper with the underlying stream of data
+    /// coming in as it may corrupt the stream of frames otherwise being worked
+    /// with.
     pub fn get_ref(&self) -> &UdpSocket {
         &self.socket
     }
@@ -112,18 +153,16 @@ impl<C> UdpFramed<C> {
     /// Returns a mutable reference to the underlying I/O stream wrapped by
     /// `Framed`.
     ///
-    /// Note that care should be taken to not tamper with the underlying stream
-    /// of data coming in as it may corrupt the stream of frames otherwise being
-    /// worked with.
+    /// # Note
+    ///
+    /// Care should be taken to not tamper with the underlying stream of data
+    /// coming in as it may corrupt the stream of frames otherwise being worked
+    /// with.
     pub fn get_mut(&mut self) -> &mut UdpSocket {
         &mut self.socket
     }
 
     /// Consumes the `Framed`, returning its underlying I/O stream.
-    ///
-    /// Note that care should be taken to not tamper with the underlying stream
-    /// of data coming in as it may corrupt the stream of frames otherwise being
-    /// worked with.
     pub fn into_inner(self) -> UdpSocket {
         self.socket
     }
