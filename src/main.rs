@@ -1,7 +1,6 @@
 #![feature(conservative_impl_trait)]
 #![feature(i128_type)]
 
-use std::io;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::process;
@@ -21,7 +20,7 @@ extern crate log;
 
 #[macro_use]
 extern crate futures;
-use futures::{future, Future};
+use futures::future;
 extern crate tokio;
 use tokio::executor::current_thread;
 extern crate tokio_io;
@@ -32,23 +31,20 @@ extern crate rand;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
 
-extern crate num_bigint;
-extern crate num_traits;
-
 extern crate fnv;
 
 extern crate bytes;
 
-mod common;
-use common::Network;
+#[macro_use]
+extern crate nanocurrency_types;
+use nanocurrency_types::Network;
+
+extern crate nanocurrency_protocol;
+
 #[macro_use]
 mod utils;
 mod udp_framed;
-mod rai_codec;
 mod node;
-
-#[cfg(test)]
-mod tests;
 
 fn main() {
     env_logger::init();

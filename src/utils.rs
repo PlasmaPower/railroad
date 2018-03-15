@@ -2,11 +2,6 @@ use std::marker::PhantomData;
 
 use futures::{Async, Stream};
 
-#[macro_export]
-macro_rules! default_addr {
-    () => { ::std::net::SocketAddrV6::new(::std::net::Ipv6Addr::from([0u8; 16]), 0, 0, 0) };
-}
-
 pub struct IgnoreErrors<S: Stream, E> {
     inner: S,
     err_phantom: PhantomData<E>,

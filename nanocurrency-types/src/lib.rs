@@ -1,16 +1,26 @@
+#![feature(i128_type)]
+
 use std::fmt;
 use std::str;
 use std::iter;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
+extern crate blake2;
 use blake2::Blake2b;
-use digest::{self, Input, VariableOutput};
+extern crate digest;
+use digest::{Input, VariableOutput};
 
+extern crate byteorder;
 use byteorder::{BigEndian, ByteOrder, LittleEndian};
 
-use num_bigint::{self, BigInt};
+extern crate num_bigint;
+use num_bigint::BigInt;
+extern crate num_traits;
 use num_traits::cast::ToPrimitive;
+
+extern crate ed25519_dalek;
+pub use ed25519_dalek::Signature;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Network {
@@ -20,7 +30,7 @@ pub enum Network {
 }
 
 #[macro_export]
-macro_rules! default_addr {
+macro_rules! zero_v6_addr {
     () => { ::std::net::SocketAddrV6::new(::std::net::Ipv6Addr::from([0u8; 16]), 0, 0, 0) };
 }
 
@@ -30,8 +40,6 @@ fn write_hex(f: &mut fmt::Formatter, bytes: &[u8]) -> fmt::Result {
     }
     Ok(())
 }
-
-pub use ed25519_dalek::Signature;
 
 #[derive(Debug, Clone)]
 pub struct BlockHeader {

@@ -1,11 +1,14 @@
-use std::net::SocketAddr;
 use std::net::SocketAddrV6;
 use std::net::Ipv4Addr;
 
 use tokio_io::codec::{Decoder, Encoder};
 
-use common::*;
-use rai_codec::{Message, Network, RaiBlocksCodec};
+use bytes::BytesMut;
+
+use nanocurrency_types::*;
+
+use Message;
+use NanoCurrencyCodec;
 
 /// A list of blocks for testing
 fn get_test_blocks() -> Vec<Block> {
@@ -48,30 +51,21 @@ fn get_test_blocks() -> Vec<Block> {
 }
 
 fn encode_decode(msg: Message) {
-    let mut codec = RaiBlocksCodec;
-    let mut bytes = Vec::new();
-    let addr = SocketAddr::V6(SocketAddrV6::new(
-        Ipv4Addr::new(11, 22, 33, 44).to_ipv6_mapped(),
-        2468,
-        0,
-        0,
-    ));
+    let mut codec = NanoCurrencyCodec;
+    let mut bytes = BytesMut::new();
     let network = Network::Beta;
-    assert_eq!(
-        codec.encode((addr.clone(), network, msg.clone()), &mut bytes),
-        addr
-    );
+    assert!(codec.encode((network, msg.clone()), &mut bytes).is_ok());
     let decode = codec
-        .decode(&addr, &bytes)
-        .expect("Failed to decode generated message");
-    assert_eq!(decode.0, addr);
-    assert_eq!(decode.1.network, network);
-    assert_eq!(decode.2, msg);
+        .decode(&mut bytes)
+        .expect("Failed to decode generated message")
+        .expect("Codec returned no message");
+    assert_eq!(decode.0.network, network);
+    assert_eq!(decode.1, msg);
 }
 
 #[test]
 fn keepalive() {
-    let mut addrs = [default_addr!(); 8];
+    let mut addrs = [zero_v6_addr!(); 8];
     addrs[0] = SocketAddrV6::new(Ipv4Addr::new(22, 33, 44, 55).to_ipv6_mapped(), 1357, 0, 0);
     addrs[7] = SocketAddrV6::new(Ipv4Addr::new(44, 55, 66, 77).to_ipv6_mapped(), 3579, 0, 0);
     encode_decode(Message::Keepalive(addrs));

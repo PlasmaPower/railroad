@@ -8,7 +8,6 @@ use std::net::SocketAddr;
 use std::net::SocketAddrV6;
 use std::time::Duration;
 
-use tokio;
 use tokio::net::UdpSocket;
 use tokio::executor::current_thread;
 
@@ -24,8 +23,8 @@ use fnv::FnvHashSet;
 use utils::ignore_errors;
 use udp_framed;
 
-use common::*;
-use rai_codec::*;
+use nanocurrency_types::*;
+use nanocurrency_protocol::*;
 
 const IPV4_RESERVED_ADDRESSES: &[(u32, u32)] = &[
     (0x00000000, 0x00ffffff), // rfc 1700
@@ -112,7 +111,7 @@ pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = io::Error> {
     }));
     let (sink, stream) = udp_framed::UdpFramed::new(
         UdpSocket::bind(&conf.listen_addr).expect("Failed to listen for peers"),
-        RaiBlocksCodec,
+        NanoCurrencyCodec,
     ).split();
     let network = conf.network;
     let node_rc = node_base.clone();
@@ -180,7 +179,7 @@ pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = io::Error> {
                                         }
                                     }
                                     // TODO some IPv6 reserved addresses missing
-                                    let mut rand_peers = [default_addr!(); 8];
+                                    let mut rand_peers = [zero_v6_addr!(); 8];
                                     node.get_rand_peers(&mut rand_peers);
                                     Some((
                                         (network, Message::Keepalive(rand_peers)),
@@ -195,7 +194,7 @@ pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = io::Error> {
                             }
                             debug!("Got block: {:?}", block.get_hash());
                             let mut peers =
-                                vec![default_addr!(); (node.peers.len() as f64).sqrt() as usize];
+                                vec![zero_v6_addr!(); (node.peers.len() as f64).sqrt() as usize];
                             node.get_rand_peers(&mut peers);
                             let to_send = peers.into_iter().map(move |peer| {
                                 (
@@ -228,7 +227,7 @@ pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = io::Error> {
             debug!("Peers: {:?}", node.peers.keys());
             let mut keepalives = Vec::with_capacity(node.peers.len());
             for (addr, _) in node.peers.iter() {
-                let mut rand_peers = [default_addr!(); 8];
+                let mut rand_peers = [zero_v6_addr!(); 8];
                 node.get_rand_peers(&mut rand_peers);
                 keepalives.push((
                     (network, Message::Keepalive(rand_peers)),

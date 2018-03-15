@@ -1,16 +1,25 @@
+#![feature(i128_type)]
+
 use std::io;
 use std::io::prelude::*;
 use std::io::Cursor;
 use std::net;
 use std::net::SocketAddrV6;
 
+extern crate byteorder;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 
+extern crate tokio_io;
 use tokio_io::codec;
 
+extern crate bytes;
 use bytes::{BufMut, BytesMut};
 
-use common::*;
+extern crate nanocurrency_types;
+use nanocurrency_types::*;
+
+#[cfg(test)]
+mod tests;
 
 const NET_VERSION: u8 = 0x07;
 const NET_VERSION_MAX: u8 = 0x07;
@@ -57,7 +66,7 @@ pub enum Message {
     },
 }
 
-pub struct RaiBlocksCodec;
+pub struct NanoCurrencyCodec;
 
 // Message types:
 // invalid      0
@@ -72,7 +81,7 @@ pub struct RaiBlocksCodec;
 // bulk_push    7
 // frontier_req 8
 
-impl RaiBlocksCodec {
+impl NanoCurrencyCodec {
     pub fn read_block<C: io::Read>(cursor: &mut C, block_ty: u8) -> io::Result<Block> {
         let inner = match block_ty {
             2 => {
@@ -225,7 +234,7 @@ impl RaiBlocksCodec {
     }
 }
 
-impl codec::Decoder for RaiBlocksCodec {
+impl codec::Decoder for NanoCurrencyCodec {
     type Item = (MessageHeader, Message);
     type Error = io::Error;
 
@@ -266,7 +275,7 @@ impl codec::Decoder for RaiBlocksCodec {
         let message = match msg_type {
             2 => {
                 // keepalive
-                let mut peers = [default_addr!(); 8];
+                let mut peers = [zero_v6_addr!(); 8];
                 let _ = (|| -> io::Result<()> {
                     for peer in peers.iter_mut() {
                         let mut ip_bytes: [u8; 16] = [0; 16];
@@ -324,7 +333,7 @@ impl codec::Decoder for RaiBlocksCodec {
     }
 }
 
-impl codec::Encoder for RaiBlocksCodec {
+impl codec::Encoder for NanoCurrencyCodec {
     type Item = (Network, Message);
     type Error = io::Error;
 
