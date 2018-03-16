@@ -76,14 +76,14 @@ fn main() {
             Arg::with_name("network")
                 .long("network")
                 .value_name("NET")
-                .default_value("main")
-                .possible_values(&["main", "beta", "test"])
+                .default_value("live")
+                .possible_values(&["live", "beta", "test"])
                 .help("The rai network to connect to"),
         )
         .get_matches();
     let mut peers: Vec<SocketAddr> = Vec::new();
     let network = match matches.value_of("network").unwrap() {
-        "main" => Network::Main,
+        "live" => Network::Live,
         "beta" => Network::Beta,
         "test" => Network::Test,
         _ => unreachable!(),
@@ -91,11 +91,18 @@ fn main() {
     let use_official_nodes =
         !matches.is_present("disable_official_nodes") && network != Network::Test;
     if use_official_nodes {
-        for mut node in "rai.raiblocks.net:7075"
-            .to_socket_addrs()
-            .expect("Failed to lookup official node IPs")
-        {
-            peers.push(node);
+        let official_domain = match network {
+            Network::Live => Some("rai.raiblocks.net:7075"),
+            Network::Beta => Some("rai-beta.raiblocks.net:7075"),
+            Network::Test => None,
+        };
+        if let Some(official_domain) = official_domain {
+            for mut node in official_domain
+                .to_socket_addrs()
+                .expect("Failed to lookup official node IPs")
+            {
+                peers.push(node);
+            }
         }
     }
     if let Some(custom_peers) = matches.values_of("peer") {

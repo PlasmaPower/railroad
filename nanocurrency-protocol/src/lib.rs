@@ -229,7 +229,7 @@ impl NanoCurrencyCodec {
         match network {
             Network::Test => b'A',
             Network::Beta => b'B',
-            Network::Main => b'C',
+            Network::Live => b'C',
         }
     }
 }
@@ -246,7 +246,7 @@ impl codec::Decoder for NanoCurrencyCodec {
         let network = match cursor.read_u8()? {
             b'A' => Network::Test,
             b'B' => Network::Beta,
-            b'C' => Network::Main,
+            b'C' => Network::Live,
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,

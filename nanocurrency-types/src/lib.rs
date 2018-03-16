@@ -26,7 +26,7 @@ pub use ed25519_dalek::Signature;
 pub enum Network {
     Test,
     Beta,
-    Main,
+    Live,
 }
 
 #[macro_export]
@@ -351,7 +351,7 @@ impl Block {
 
     pub fn work_threshold(&self, network: Network) -> u64 {
         match network {
-            Network::Main | Network::Beta => 0xffffffc000000000,
+            Network::Live | Network::Beta => 0xffffffc000000000,
             Network::Test => 0xff00000000000000,
         }
     }
