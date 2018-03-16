@@ -245,7 +245,7 @@ pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = ()> {
         .flatten();
     sink.send_all(
         ignore_errors::<io::Error, _>(process_messages)
-            .select(ignore_errors::<io::Error, _>(keepalive)),
+            .select(ignore_errors(keepalive)),
     ).map(|_| ())
         .map_err(|_| ())
 }
