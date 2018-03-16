@@ -25,6 +25,7 @@ extern crate tokio;
 use tokio::executor::current_thread;
 extern crate tokio_io;
 extern crate tokio_timer;
+extern crate net2;
 
 extern crate rand;
 
@@ -169,5 +170,5 @@ fn main() {
         vote_weights,
     };
     current_thread::block_on_all(future::lazy(|| node::run(node_config)))
-        .expect("Failed to create execution context");
+        .expect("Failed to startup node");
 }

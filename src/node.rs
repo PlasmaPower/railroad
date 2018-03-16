@@ -9,9 +9,12 @@ use std::net::SocketAddrV6;
 use std::time::Duration;
 
 use tokio::net::UdpSocket;
+use tokio::reactor::Handle;
 use tokio::executor::current_thread;
 
 use tokio_timer::Timer;
+
+use net2::UdpBuilder;
 
 use futures::{stream, Future, Sink, Stream};
 use futures::sync::mpsc;
@@ -69,7 +72,7 @@ impl NodeInfo {
     fn get_rand_peers(&self, peers_out: &mut [SocketAddrV6]) {
         let mut thread_rng = thread_rng();
         let mut rand_peers = RefCell::borrow_mut(&self.rand_peers);
-        for peer_out in peers_out.iter_mut() {
+        for peer_out in peers_out.iter_mut().take(self.peers.len()) {
             if self.peers.is_empty() {
                 break;
             }
@@ -109,10 +112,15 @@ pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = io::Error> {
         rand_peers: Default::default(),
         new_peer_backoff: HashMap::new(),
     }));
-    let (sink, stream) = udp_framed::UdpFramed::new(
-        UdpSocket::bind(&conf.listen_addr).expect("Failed to listen for peers"),
-        NanoCurrencyCodec,
-    ).split();
+    let socket = UdpBuilder::new_v6()
+        .expect("Failed to create v6 UDP socket")
+        .only_v6(false)
+        .expect("Failed to configure UDP socket")
+        .bind(&conf.listen_addr)
+        .expect("Failed to bind UDP socket");
+    let socket = UdpSocket::from_std(socket, &Handle::current())
+        .expect("Failed to convert UDP socket to asynchronous");
+    let (sink, stream) = udp_framed::UdpFramed::new(socket, NanoCurrencyCodec).split();
     let network = conf.network;
     let node_rc = node_base.clone();
     struct ActiveBlockInfo {
