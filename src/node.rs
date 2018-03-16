@@ -19,8 +19,6 @@ use futures::{stream, Future, Sink, Stream};
 
 use rand::{thread_rng, Rng};
 
-use fnv::FnvHashSet;
-
 use utils::ignore_errors;
 use udp_framed;
 
@@ -121,13 +119,6 @@ pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = ()> {
     let (sink, stream) = udp_framed::UdpFramed::new(socket, NanoCurrencyCodec).split();
     let network = conf.network;
     let node_rc = node_base.clone();
-    struct ActiveBlockInfo {
-        block: Block,
-        last_heard_of: Instant,
-        votes: FnvHashSet<Account>,
-        vote_tally: u128,
-    }
-    let mut active_blocks: HashMap<BlockHash, ActiveBlockInfo> = HashMap::new();
     let process_message = move |((header, msg), src)| -> Box<
         Stream<Item = ((Network, Message), SocketAddr), Error = io::Error>,
     > {
