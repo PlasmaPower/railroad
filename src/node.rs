@@ -10,14 +10,12 @@ use std::time::Duration;
 
 use tokio::net::UdpSocket;
 use tokio::reactor::Handle;
-use tokio::executor::current_thread;
 
 use tokio_timer::Timer;
 
 use net2::UdpBuilder;
 
 use futures::{stream, Future, Sink, Stream};
-use futures::sync::mpsc;
 
 use rand::{thread_rng, Rng};
 
@@ -102,7 +100,7 @@ pub struct NodeConfig {
     pub network: Network,
 }
 
-pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = io::Error> {
+pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = ()> {
     let node_base = Rc::new(RefCell::new(NodeInfo {
         peers: conf.peers
             .into_iter()
@@ -245,24 +243,9 @@ pub fn run(conf: NodeConfig) -> impl Future<Item = (), Error = io::Error> {
             stream::iter_ok::<_, io::Error>(keepalives.into_iter())
         })
         .flatten();
-    let sock_channel = mpsc::channel(2048);
-    let sock_send = sock_channel.0.clone();
-    current_thread::spawn(
-        sock_send
-            .send_all(ignore_errors(process_messages))
-            .map(|_| ())
-            .map_err(|_| ()),
-    );
-    let sock_send = sock_channel.0.clone();
-    current_thread::spawn(
-        sock_send
-            .send_all(ignore_errors(keepalive))
-            .map(|_| ())
-            .map_err(|_| ()),
-    );
     sink.send_all(
-        sock_channel
-            .1
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "failed to receive")),
+        ignore_errors::<io::Error, _>(process_messages)
+            .select(ignore_errors::<io::Error, _>(keepalive)),
     ).map(|_| ())
+        .map_err(|_| ())
 }
