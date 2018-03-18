@@ -22,7 +22,8 @@ pub fn run(conf: NodeConfig) -> Box<Future<Item = (), Error = ()>> {
             let mut output = Vec::new();
             match message {
                 Message::Keepalive(_) => {}
-                Message::Publish(block) | Message::ConfirmReq(block) => {
+                Message::ConfirmReq(block) => {} // probably a rep crawler
+                Message::Publish(block) => {
                     if block.work_valid(network) {
                         debug!("got block: {:?}", block.get_hash());
                         let mut peers =
@@ -33,9 +34,12 @@ pub fn run(conf: NodeConfig) -> Box<Future<Item = (), Error = ()>> {
                         }));
                     }
                 }
-                Message::ConfirmAck { .. } => {
-                    // TODO processing
-                    // TODO rebroadcasting
+                Message::ConfirmAck { block, .. } => {
+                    if block.work_valid(network) {
+                        debug!("got block: {:?}", block.get_hash());
+                        // TODO processing
+                        // TODO rebroadcasting
+                    }
                 }
             }
             output.into_iter()
