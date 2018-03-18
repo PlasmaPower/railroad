@@ -1,15 +1,12 @@
-#![allow(dead_code)]
+use std::io;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-//! A custom version of tokio::net::UdpFramed that does not exit on send error
-
-use std::net::{SocketAddr, Ipv4Addr, SocketAddrV4};
-
-use futures::{Async, Poll, Stream, Sink, StartSend, AsyncSink};
+use futures::{Async, AsyncSink, Poll, Sink, StartSend, Stream};
 
 use tokio::net::UdpSocket;
 
 use tokio_io::codec::{Decoder, Encoder};
-use bytes::{BytesMut, BufMut};
+use bytes::{BufMut, BytesMut};
 
 /// A unified `Stream` and `Sink` interface to an underlying `UdpSocket`, using
 /// the `Encoder` and `Decoder` traits to encode and decode frames.
@@ -69,9 +66,9 @@ impl<C: Encoder> Sink for UdpFramed<C> {
         trace!("sending frame");
 
         if !self.flushed {
-            match try!(self.poll_complete()) {
-                Async::Ready(()) => {},
-                Async::NotReady => return Ok(AsyncSink::NotReady(item)),
+            match self.poll_complete() {
+                Ok(Async::Ready(())) => {}
+                _ => return Ok(AsyncSink::NotReady(item)),
             }
         }
 
@@ -86,33 +83,35 @@ impl<C: Encoder> Sink for UdpFramed<C> {
 
     fn poll_complete(&mut self) -> Poll<(), C::Error> {
         if self.flushed {
-            return Ok(Async::Ready(()))
+            return Ok(Async::Ready(()));
         }
 
         trace!("flushing frame; length={}", self.wr.len());
-        match self.socket.poll_send_to(&self.wr, &self.out_addr) {
-            Ok(Async::NotReady) => {
-                return Ok(Async::NotReady);
-            },
-            Ok(Async::Ready(n)) => {
-                trace!("written {}", n);
-
-                let wrote_all = n == self.wr.len();
-                self.wr.clear();
-                self.flushed = true;
-
-                if !wrote_all {
-                    debug!("Failed to write entire datagram to socket! Wrote: {} length: {}", n, self.wr.len());
-                }
-            },
+        let n = match self.socket.poll_send_to(&self.wr, &self.out_addr) {
+            Ok(Async::Ready(n)) => n,
+            Ok(Async::NotReady) => return Ok(Async::NotReady),
             Err(e) => {
                 if e.kind() == ::std::io::ErrorKind::WouldBlock {
                     return Ok(Async::NotReady);
                 }
-                debug!("Error sending frame: {:?}", e);
+                debug!("error sending frame: {:?}", e);
+                return Ok(Async::Ready(()));
             }
+        };
+        trace!("written {}", n);
+
+        let wrote_all = n == self.wr.len();
+        self.wr.clear();
+        self.flushed = true;
+
+        if wrote_all {
+            Ok(Async::Ready(()))
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "failed to write entire datagram to socket",
+            ).into())
         }
-        Ok(Async::Ready(()))
     }
 
     fn close(&mut self) -> Poll<(), C::Error> {
@@ -124,6 +123,7 @@ impl<C: Encoder> Sink for UdpFramed<C> {
 const INITIAL_RD_CAPACITY: usize = 64 * 1024;
 const INITIAL_WR_CAPACITY: usize = 8 * 1024;
 
+#[allow(dead_code)]
 impl<C> UdpFramed<C> {
     /// Create a new `UdpFramed` backed by the given socket and codec.
     ///
