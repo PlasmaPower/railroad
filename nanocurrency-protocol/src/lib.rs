@@ -56,7 +56,7 @@ pub struct MessageHeader {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Message {
     Keepalive([SocketAddrV6; 8]),
-    Block(Block),
+    Publish(Block),
     ConfirmReq(Block),
     ConfirmAck {
         account: Account,
@@ -67,19 +67,6 @@ pub enum Message {
 }
 
 pub struct NanoCurrencyCodec;
-
-// Message types:
-// invalid      0
-// not_a_type   1
-// keepalive    2
-// publish      3
-// confirm_req  4
-// confirm_ack  5
-//
-// Bootstrap message types:
-// bulk_pull    6
-// bulk_push    7
-// frontier_req 8
 
 impl NanoCurrencyCodec {
     pub fn read_block<C: io::Read>(cursor: &mut C, block_ty: u8) -> io::Result<Block> {
@@ -234,6 +221,19 @@ impl NanoCurrencyCodec {
     }
 }
 
+// Message types:
+// invalid      0
+// not_a_type   1
+// keepalive    2
+// publish      3
+// confirm_req  4
+// confirm_ack  5
+//
+// Bootstrap message types:
+// bulk_pull    6
+// bulk_push    7
+// frontier_req 8
+
 impl codec::Decoder for NanoCurrencyCodec {
     type Item = (MessageHeader, Message);
     type Error = io::Error;
@@ -290,9 +290,9 @@ impl codec::Decoder for NanoCurrencyCodec {
                 Message::Keepalive(peers)
             }
             3 => {
-                // block
+                // publish
                 let ty = (header.extensions & 0x0f00) >> 8;
-                Message::Block(Self::read_block(&mut cursor, ty as u8)?)
+                Message::Publish(Self::read_block(&mut cursor, ty as u8)?)
             }
             4 => {
                 // confirm_req
@@ -356,7 +356,7 @@ impl codec::Encoder for NanoCurrencyCodec {
                     buf.put_u16::<LittleEndian>(peer.port());
                 }
             }
-            Message::Block(block) => {
+            Message::Publish(block) => {
                 buf.put_slice(&[3]);
                 let type_num = Self::block_type_num(&block) as u16;
                 buf.put_u16::<LittleEndian>((type_num & 0x0f) << 8);

@@ -74,7 +74,7 @@ fn keepalive() {
 #[test]
 fn blocks() {
     for block in get_test_blocks() {
-        encode_decode(Message::Block(block.clone()));
+        encode_decode(Message::Publish(block.clone()));
     }
 }
 

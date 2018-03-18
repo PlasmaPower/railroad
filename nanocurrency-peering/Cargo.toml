@@ -1,6 +1,6 @@
 [package]
 name = "nanocurrency-peering"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 description = "Peering code for the Nano cryptocurrency"
 license = "BSD-2-Clause"
@@ -10,7 +10,7 @@ futures = "0.1"
 tokio = "0.1"
 net2 = "0.2"
 nanocurrency-types = { version = "0.2", path = "../nanocurrency-types" }
-nanocurrency-protocol = { version = "0.2", path = "../nanocurrency-protocol" }
+nanocurrency-protocol = { version = "0.3", path = "../nanocurrency-protocol" }
 log = "0.4"
 tokio-timer = "0.1"
 tokio-io = "0.1"
