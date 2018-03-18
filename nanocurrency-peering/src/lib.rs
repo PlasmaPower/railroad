@@ -92,14 +92,19 @@ pub struct PeeringManagerState {
 
 impl PeeringManagerState {
     pub fn get_rand_peers(&self, peers_out: &mut [SocketAddrV6]) {
-        let mut thread_rng = thread_rng();
-        let mut rand_peers = RefCell::borrow_mut(&self.rand_peers);
-        for peer_out in peers_out.iter_mut().take(self.peers.len()) {
-            if self.peers.is_empty() {
-                break;
+        if self.peers.len() < peers_out.len() {
+            for (peer, peer_out) in self.peers.keys().zip(peers_out.iter_mut()) {
+                *peer_out = *peer;
             }
-            rand_peers.extend(self.peers.keys());
-            thread_rng.shuffle(&mut rand_peers);
+            return;
+        }
+        let mut thread_rng = thread_rng();
+        let mut rand_peers = self.rand_peers.borrow_mut();
+        for peer_out in peers_out.iter_mut() {
+            if rand_peers.is_empty() {
+                rand_peers.extend(self.peers.keys());
+                thread_rng.shuffle(&mut rand_peers);
+            }
             *peer_out = rand_peers.pop().unwrap();
         }
     }
