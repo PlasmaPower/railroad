@@ -94,7 +94,7 @@ impl<C: Encoder> Sink for UdpFramed<C> {
                 if e.kind() == ::std::io::ErrorKind::WouldBlock {
                     return Ok(Async::NotReady);
                 }
-                debug!("Error sending frame: {:?}", e);
+                debug!("error sending frame: {:?}", e);
                 return Ok(Async::Ready(()));
             }
         };
