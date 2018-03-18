@@ -1,6 +1,6 @@
 [package]
 name = "nanocurrency-peering"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 description = "Peering code for the Nano cryptocurrency"
 license = "BSD-2-Clause"
