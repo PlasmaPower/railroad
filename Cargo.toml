@@ -26,6 +26,7 @@ tokio-io = "0.1"
 bytes = "0.4"
 nanocurrency-types = { version = "0.2", path = "nanocurrency-types" }
 nanocurrency-protocol = { version = "0.2", path = "nanocurrency-protocol" }
+nanocurrency-peering = { version = "0.1", path = "nanocurrency-peering" }
 digest = { version = "0.7", features = ["std"] }
 byteorder = { version = "1", features = ["i128"] }
 net2 = "0.2.32"

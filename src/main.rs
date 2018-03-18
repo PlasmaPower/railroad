@@ -1,8 +1,6 @@
-#![feature(conservative_impl_trait)]
 #![feature(i128_type)]
 
 use std::net::SocketAddr;
-use std::net::ToSocketAddrs;
 use std::process;
 use std::collections::HashMap;
 
@@ -18,21 +16,18 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 
-#[macro_use]
 extern crate futures;
 use futures::future;
 extern crate tokio;
 use tokio::executor::current_thread;
+extern crate net2;
 extern crate tokio_io;
 extern crate tokio_timer;
-extern crate net2;
 
 extern crate rand;
 
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
-
-extern crate fnv;
 
 extern crate bytes;
 
@@ -42,9 +37,9 @@ use nanocurrency_types::Network;
 
 extern crate nanocurrency_protocol;
 
+extern crate nanocurrency_peering;
+
 #[macro_use]
-mod utils;
-mod udp_framed;
 mod node;
 
 fn main() {
@@ -53,9 +48,9 @@ fn main() {
         .version(env!("CARGO_PKG_VERSION"))
         .author("Lee Bousfield <ljbousfield@gmail.com>")
         .arg(
-            Arg::with_name("disable_official_nodes")
-                .long("disable-official-nodes")
-                .help("Disable connecting to the official nodes"),
+            Arg::with_name("disable_official_peers")
+                .long("disable-official-peers")
+                .help("Disable connecting to the official nodes by default"),
         )
         .arg(
             Arg::with_name("peer")
@@ -81,34 +76,18 @@ fn main() {
                 .help("The rai network to connect to"),
         )
         .get_matches();
-    let mut peers: Vec<SocketAddr> = Vec::new();
+    let mut custom_peers: Vec<SocketAddr> = Vec::new();
     let network = match matches.value_of("network").unwrap() {
         "live" => Network::Live,
         "beta" => Network::Beta,
         "test" => Network::Test,
         _ => unreachable!(),
     };
-    let use_official_nodes =
-        !matches.is_present("disable_official_nodes") && network != Network::Test;
-    if use_official_nodes {
-        let official_domain = match network {
-            Network::Live => Some("rai.raiblocks.net:7075"),
-            Network::Beta => Some("rai-beta.raiblocks.net:7075"),
-            Network::Test => None,
-        };
-        if let Some(official_domain) = official_domain {
-            for mut node in official_domain
-                .to_socket_addrs()
-                .expect("Failed to lookup official node IPs")
-            {
-                peers.push(node);
-            }
-        }
-    }
-    if let Some(custom_peers) = matches.values_of("peer") {
-        for node in custom_peers {
+    let use_official_peers = !matches.is_present("disable_official_peers");
+    if let Some(peers) = matches.values_of("peer") {
+        for node in peers {
             match node.parse() {
-                Ok(node) => peers.push(node),
+                Ok(node) => custom_peers.push(node),
                 Err(err) => {
                     eprintln!("Failed to parse custom peer {:?}: {}", node, err);
                     process::exit(1);
@@ -172,10 +151,11 @@ fn main() {
     );
     let node_config = node::NodeConfig {
         network,
-        peers,
+        use_official_peers,
+        custom_peers,
         listen_addr,
         vote_weights,
     };
     current_thread::block_on_all(future::lazy(|| node::run(node_config)))
-        .expect("Failed to startup node");
+        .expect("Failed to run node");
 }
