@@ -22,7 +22,7 @@ pub fn run(conf: NodeConfig) -> Box<Future<Item = (), Error = ()>> {
             let mut output = Vec::new();
             match message {
                 Message::Keepalive(_) => {}
-                Message::ConfirmReq(block) => {} // probably a rep crawler
+                Message::ConfirmReq(_) => {} // probably a rep crawler
                 Message::Publish(block) => {
                     if block.work_valid(network) {
                         debug!("got block: {:?}", block.get_hash());
