@@ -157,5 +157,5 @@ fn main() {
         vote_weights,
     };
     current_thread::block_on_all(future::lazy(|| node::run(node_config)))
-        .expect("Failed to run node");
+        .expect("failed to run node");
 }

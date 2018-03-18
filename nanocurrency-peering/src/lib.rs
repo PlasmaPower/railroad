@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use std::collections::{hash_map, HashMap};
 use std::marker::PhantomData;
+use std::fmt::Debug;
 
 #[macro_use]
 extern crate log;
@@ -51,25 +52,26 @@ pub fn addr_to_ipv6(addr: SocketAddr) -> SocketAddrV6 {
     }
 }
 
-struct IgnoreErrors<S: Stream, E> {
+struct IgnoreErrors<S: Stream, E> where S::Error: Debug {
     inner: S,
     err_phantom: PhantomData<E>,
 }
 
-impl<S: Stream, E> Stream for IgnoreErrors<S, E> {
+impl<S: Stream, E: Debug> Stream for IgnoreErrors<S, E> where S::Error: Debug {
     type Item = S::Item;
     type Error = E;
 
     fn poll(&mut self) -> Result<futures::Async<Option<S::Item>>, E> {
         loop {
-            if let Ok(x) = self.inner.poll() {
-                return Ok(x);
+            match self.inner.poll() {
+                Ok(x) => return Ok(x),
+                Err(err) => debug!("ignoring error: {:?}", err),
             }
         }
     }
 }
 
-fn ignore_errors<S: Stream, E>(stream: S) -> IgnoreErrors<S, E> {
+fn ignore_errors<S: Stream, E>(stream: S) -> IgnoreErrors<S, E> where S::Error: Debug {
     IgnoreErrors {
         inner: stream,
         err_phantom: PhantomData,
@@ -198,12 +200,12 @@ where
         let process_message = move |((header, msg), src)| {
             let _: &MessageHeader = &header;
             if header.network != network {
-                warn!("Ignoring message from {:?} network", header.network);
+                warn!("ignoring message from {:?} network", header.network);
                 return stream::iter_ok(Vec::new().into_iter());
             }
             let mut state = state_rc.borrow_mut();
             state.contacted(src, &header);
-            trace!("Got message from {:?}: {:?}", src, msg);
+            trace!("got message from {:?}: {:?}", src, msg);
             let mut output_messages = Vec::new();
             match msg {
                 Message::Keepalive(new_peers) => {
@@ -269,7 +271,7 @@ where
                 state
                     .peers
                     .retain(|_, info| info.last_heard_from > last_heard_cutoff);
-                debug!("Peers: {:?}", state.peers.keys());
+                debug!("peers: {:?}", state.peers.keys());
                 let mut keepalives = Vec::with_capacity(state.peers.len());
                 for addr in state
                     .peers
