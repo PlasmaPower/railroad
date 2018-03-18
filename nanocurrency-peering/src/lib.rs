@@ -189,10 +189,16 @@ where
         configured_peers.extend(self.custom_peers.into_iter().map(addr_to_ipv6));
         let state_base = PeeringManagerState::default();
         let state_base = Rc::new(RefCell::new(state_base));
-        let socket = UdpBuilder::new_v6()?
-            .only_v6(false)?
-            .bind(self.listen_addr)?;
-        let socket = UdpSocket::from_std(socket, &Handle::current())?;
+        let socket;
+        if cfg!(target_os = "windows") {
+            // TODO this is necessary on Windows but doesn't work well
+            let std_socket = UdpBuilder::new_v6()?
+                .only_v6(false)?
+                .bind(self.listen_addr)?;
+            socket = UdpSocket::from_std(std_socket, &Handle::current())?;
+        } else {
+            socket = UdpSocket::bind(&self.listen_addr)?;
+        }
         let (sink, stream) = udp_framed::UdpFramed::new(socket, NanoCurrencyCodec).split();
         let network = self.network;
         let message_handler = self.message_handler;

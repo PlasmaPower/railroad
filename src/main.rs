@@ -61,9 +61,9 @@ fn main() {
                 .help("Connect to a specific peer (must include port)"),
         )
         .arg(
-            Arg::with_name("peering_listen_address")
+            Arg::with_name("listen_address")
                 .short("l")
-                .long("peering-listen-address")
+                .long("listen-address")
                 .value_name("ADDR")
                 .help("Listen on a specific address (must include port)"),
         )
@@ -96,7 +96,7 @@ fn main() {
         }
     }
     let mut listen_addr = "[::]:7075".parse().unwrap();
-    if let Some(addr) = matches.value_of("listen_addr") {
+    if let Some(addr) = matches.value_of("listen_address") {
         match addr.parse() {
             Ok(addr) => listen_addr = addr,
             Err(err) => {
