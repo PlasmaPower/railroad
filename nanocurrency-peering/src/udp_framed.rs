@@ -102,14 +102,14 @@ impl<C: Encoder> Sink for UdpFramed<C> {
                 self.flushed = true;
 
                 if !wrote_all {
-                    error!("Failed to write entire datagram to socket! Wrote: {} length: {}", n, self.wr.len());
+                    debug!("Failed to write entire datagram to socket! Wrote: {} length: {}", n, self.wr.len());
                 }
             },
             Err(e) => {
                 if e.kind() == ::std::io::ErrorKind::WouldBlock {
                     return Ok(Async::NotReady);
                 }
-                error!("Error sending frame: {:?}", e);
+                debug!("Error sending frame: {:?}", e);
             }
         }
         Ok(Async::Ready(()))
