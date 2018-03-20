@@ -118,7 +118,7 @@ impl NanoCurrencyCodec {
                 }
             }
             6 => {
-                // utx
+                // state
                 let mut account = Account::default();
                 cursor.read_exact(&mut account.0)?;
                 let mut previous = BlockHash::default();
@@ -146,7 +146,13 @@ impl NanoCurrencyCodec {
         let mut signature = [0u8; 64];
         cursor.read_exact(&mut signature)?;
         let signature = Signature::from_bytes(&signature).unwrap();
-        let work = cursor.read_u64::<LittleEndian>()?;
+        let work;
+        if block_ty >= 6 {
+            // New block types have work in big endian
+            work = cursor.read_u64::<BigEndian>()?;
+        } else {
+            work = cursor.read_u64::<LittleEndian>()?;
+        }
         let header = BlockHeader { signature, work };
         Ok(Block { header, inner })
     }
@@ -164,6 +170,7 @@ impl NanoCurrencyCodec {
     /// Does NOT include block type
     pub fn write_block(buf: &mut BytesMut, block: Block) {
         buf.reserve(block.size());
+        let mut work_big_endian = false;
         match block.inner {
             BlockInner::Send {
                 previous,
@@ -206,10 +213,15 @@ impl NanoCurrencyCodec {
                 buf.put_slice(&representative.0);
                 buf.put_u128::<BigEndian>(balance);
                 buf.put_slice(&link as &[u8]);
+                work_big_endian = true;
             }
         };
         buf.put_slice(&block.header.signature.to_bytes() as &[u8]);
-        buf.put_u64::<LittleEndian>(block.header.work);
+        if work_big_endian {
+            buf.put_u64::<BigEndian>(block.header.work);
+        } else {
+            buf.put_u64::<LittleEndian>(block.header.work);
+        }
     }
 
     pub fn network_magic_byte(network: Network) -> u8 {

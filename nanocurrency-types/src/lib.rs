@@ -41,7 +41,7 @@ fn write_hex(f: &mut fmt::Formatter, bytes: &[u8]) -> fmt::Result {
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BlockHeader {
     pub signature: Signature,
     pub work: u64,

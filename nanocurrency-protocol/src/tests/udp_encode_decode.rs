@@ -60,7 +60,7 @@ fn get_test_blocks() -> Vec<Block> {
     ]
 }
 
-fn encode_decode(msg: Message) {
+fn encode_decode(msg: Message) -> Message {
     let mut codec = NanoCurrencyCodec;
     let mut bytes = BytesMut::new();
     let network = Network::Beta;
@@ -71,6 +71,7 @@ fn encode_decode(msg: Message) {
         .expect("Codec returned no message");
     assert_eq!(decode.0.network, network);
     assert_eq!(decode.1, msg);
+    decode.1
 }
 
 #[test]
@@ -84,7 +85,12 @@ fn keepalive() {
 #[test]
 fn blocks() {
     for block in get_test_blocks() {
-        encode_decode(Message::Publish(block.clone()));
+        let msg = encode_decode(Message::Publish(block.clone()));
+        if let Message::Publish(msg_block) = msg {
+            assert_eq!(block.header, msg_block.header);
+        } else {
+            unreachable!();
+        }
     }
 }
 
