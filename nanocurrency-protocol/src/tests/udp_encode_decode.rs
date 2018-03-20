@@ -41,10 +41,20 @@ fn get_test_blocks() -> Vec<Block> {
             },
         },
         Block {
-            header,
+            header: header.clone(),
             inner: BlockInner::Change {
                 previous: BlockHash([2; 32]),
                 representative: Account([3; 32]),
+            },
+        },
+        Block {
+            header: header.clone(),
+            inner: BlockInner::State {
+                previous: BlockHash([2; 32]),
+                link: [3; 32],
+                account: Account([4; 32]),
+                representative: Account([5; 32]),
+                balance: 1234567890_1234567890_u128,
             },
         },
     ]

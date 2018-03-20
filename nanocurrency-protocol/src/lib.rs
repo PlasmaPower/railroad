@@ -128,7 +128,7 @@ impl NanoCurrencyCodec {
                 let balance = cursor.read_u128::<BigEndian>()?;
                 let mut link = [0u8; 32];
                 cursor.read_exact(&mut link)?;
-                BlockInner::Utx {
+                BlockInner::State {
                     account,
                     previous,
                     representative,
@@ -157,7 +157,7 @@ impl NanoCurrencyCodec {
             BlockInner::Receive { .. } => 3,
             BlockInner::Open { .. } => 4,
             BlockInner::Change { .. } => 5,
-            BlockInner::Utx { .. } => 6,
+            BlockInner::State { .. } => 6,
         }
     }
 
@@ -194,7 +194,7 @@ impl NanoCurrencyCodec {
                 buf.put_slice(&previous.0);
                 buf.put_slice(&representative.0);
             }
-            BlockInner::Utx {
+            BlockInner::State {
                 account,
                 previous,
                 representative,

@@ -199,7 +199,7 @@ pub enum BlockInner {
         representative: Account,
     },
     /// A universal transaction which contains the account state.
-    Utx {
+    State {
         account: Account,
         previous: BlockHash,
         representative: Account,
@@ -246,7 +246,7 @@ impl Hash for BlockInner {
                 previous.hash(state);
                 representative.hash(state);
             }
-            BlockInner::Utx {
+            BlockInner::State {
                 ref account,
                 ref previous,
                 ref representative,
@@ -296,7 +296,7 @@ impl BlockInner {
             BlockInner::Receive { ref previous, .. } => Some(previous),
             BlockInner::Change { ref previous, .. } => Some(previous),
             BlockInner::Open { .. } => None,
-            BlockInner::Utx { ref previous, .. } => {
+            BlockInner::State { ref previous, .. } => {
                 let is_zero = previous.0.iter().all(|&x| x == 0);
                 if is_zero {
                     None
@@ -313,7 +313,7 @@ impl BlockInner {
             BlockInner::Receive { ref previous, .. } => &previous.0,
             BlockInner::Change { ref previous, .. } => &previous.0,
             BlockInner::Open { ref account, .. } => &account.0,
-            BlockInner::Utx { ref account, .. } => {
+            BlockInner::State { ref account, .. } => {
                 self.previous().map(|h| &h.0).unwrap_or(&account.0)
             }
         }
@@ -325,7 +325,7 @@ impl BlockInner {
             BlockInner::Receive { .. } => 32 + 32,
             BlockInner::Change { .. } => 32 + 32,
             BlockInner::Open { .. } => 32 + 32 + 32,
-            BlockInner::Utx { .. } => 32 + 32 + 32 + 16 + 32,
+            BlockInner::State { .. } => 32 + 32 + 32 + 16 + 32,
         }
     }
 }
