@@ -3,6 +3,7 @@ authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 name = "railroad"
 version = "0.1.0"
 license = "BSD-2-Clause"
+repository = "https://github.com/PlasmaPower/railroad"
 
 [workspace]
 members = [

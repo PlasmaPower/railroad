@@ -1,9 +1,10 @@
 [package]
 name = "nanocurrency-peering"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 description = "Peering code for the Nano cryptocurrency"
 license = "BSD-2-Clause"
+repository = "https://github.com/PlasmaPower/railroad"
 
 [dependencies]
 futures = "0.1"
