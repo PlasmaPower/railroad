@@ -391,6 +391,10 @@ impl Block {
         self.inner.root_bytes()
     }
 
+    pub fn into_root(self) -> BlockRoot {
+        self.inner.into_root()
+    }
+
     pub fn work_threshold(&self, network: Network) -> u64 {
         match network {
             Network::Live | Network::Beta => 0xffffffc000000000,
