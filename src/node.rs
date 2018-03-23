@@ -27,7 +27,7 @@ pub fn run(conf: NodeConfig) -> Box<Future<Item = (), Error = ()>> {
                     if block.work_valid(network) {
                         debug!("got block: {:?}", block.get_hash());
                         let mut peers =
-                            vec![zero_v6_addr!(); (peering.num_peers() as f64).sqrt() as usize];
+                            vec![zero_v6_addr!(); (peering.peers().len() as f64).sqrt() as usize];
                         peering.get_rand_peers(&mut peers);
                         output.extend(peers.into_iter().map(move |peer| {
                             (Message::Publish(block.clone()), SocketAddr::V6(peer))

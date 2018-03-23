@@ -81,6 +81,8 @@ fn ignore_errors<S: Stream, E>(stream: S) -> IgnoreErrors<S, E> where S::Error: 
 pub struct PeerInfo {
     pub last_heard_from: Instant,
     pub network_version: u8,
+    // TODO replace with #[non_exhaustive] once stable
+    _private: (),
 }
 
 #[derive(Default)]
@@ -109,8 +111,8 @@ impl PeeringManagerState {
         }
     }
 
-    pub fn num_peers(&self) -> usize {
-        self.peers.len()
+    pub fn peers(&self) -> &HashMap<SocketAddrV6, PeerInfo> {
+        &self.peers
     }
 
     fn contacted(&mut self, addr: SocketAddr, header: &MessageHeader) {
@@ -123,6 +125,7 @@ impl PeeringManagerState {
                 entry.insert(PeerInfo {
                     last_heard_from: Instant::now(),
                     network_version: header.version,
+                    _private: (),
                 });
             }
         }
@@ -141,6 +144,7 @@ where
     listen_addr: SocketAddr,
     network: Network,
     message_handler: F,
+    state_base: Rc<RefCell<PeeringManagerState>>,
 }
 
 impl<F, I, II> PeeringManagerBuilder<F, I, II>
@@ -156,6 +160,7 @@ where
             listen_addr: "[::]:7075".parse().unwrap(),
             network: Network::Live,
             message_handler,
+            state_base: Default::default(),
         }
     }
 
@@ -179,6 +184,11 @@ where
         self
     }
 
+    pub fn state_base(mut self, value: Rc<RefCell<PeeringManagerState>>) -> Self {
+        self.state_base = value;
+        self
+    }
+
     pub fn run(self) -> io::Result<Box<Future<Item = (), Error = ()>>> {
         let mut configured_peers: Vec<SocketAddrV6> = Vec::new();
         if self.use_official_peers {
@@ -192,8 +202,6 @@ where
             }
         }
         configured_peers.extend(self.custom_peers.into_iter().map(addr_to_ipv6));
-        let state_base = PeeringManagerState::default();
-        let state_base = Rc::new(RefCell::new(state_base));
         let socket;
         if cfg!(target_os = "windows") {
             // TODO this is necessary on Windows but doesn't work well
@@ -207,7 +215,7 @@ where
         let (sink, stream) = udp_framed::UdpFramed::new(socket, NanoCurrencyCodec).split();
         let network = self.network;
         let message_handler = self.message_handler;
-        let state_rc = state_base.clone();
+        let state_rc = self.state_base.clone();
         let process_message = move |((header, msg), src)| {
             let _: &MessageHeader = &header;
             if header.network != network {
@@ -269,7 +277,7 @@ where
             stream::iter_ok::<_, io::Error>(output_messages)
         };
         let process_messages = stream.map(process_message).flatten();
-        let state_rc = state_base.clone();
+        let state_rc = self.state_base.clone();
         let timer = Timer::default();
         let keepalive = stream::once(Ok(()))
             .chain(timer.interval(Duration::from_secs(KEEPALIVE_INTERVAL)))
