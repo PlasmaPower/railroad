@@ -5,6 +5,7 @@ use std::str;
 use std::iter;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
+use std::convert::AsRef;
 
 extern crate blake2;
 use blake2::Blake2b;
@@ -279,6 +280,30 @@ impl<'a, D: digest::Input + 'a> Hasher for DigestHasher<'a, D> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum BlockRoot {
+    Block(BlockHash),
+    Account(Account),
+}
+
+impl AsRef<[u8; 32]> for BlockRoot {
+    fn as_ref(&self) -> &[u8; 32] {
+        match *self {
+            BlockRoot::Block(BlockHash(ref bytes)) => bytes,
+            BlockRoot::Account(Account(ref bytes)) => bytes,
+        }
+    }
+}
+
+impl Into<[u8; 32]> for BlockRoot {
+    fn into(self) -> [u8; 32] {
+        match self {
+            BlockRoot::Block(BlockHash(bytes)) => bytes,
+            BlockRoot::Account(Account(bytes)) => bytes,
+        }
+    }
+}
+
 impl BlockInner {
     pub fn get_hash(&self) -> BlockHash {
         let mut hasher = Blake2b::new(32).expect("Unsupported hash length");
@@ -315,6 +340,23 @@ impl BlockInner {
             BlockInner::Open { ref account, .. } => &account.0,
             BlockInner::State { ref account, .. } => {
                 self.previous().map(|h| &h.0).unwrap_or(&account.0)
+            }
+        }
+    }
+
+    pub fn into_root(self) -> BlockRoot {
+        match self {
+            BlockInner::Send { previous, .. } => BlockRoot::Block(previous),
+            BlockInner::Receive { previous, .. } => BlockRoot::Block(previous),
+            BlockInner::Change { previous, .. } => BlockRoot::Block(previous),
+            BlockInner::Open { account, .. } => BlockRoot::Account(account),
+            BlockInner::State { account, previous, .. } => {
+                let prev_is_zero = previous.0.iter().all(|&x| x == 0);
+                if prev_is_zero {
+                    BlockRoot::Account(account)
+                } else {
+                    BlockRoot::Block(previous)
+                }
             }
         }
     }

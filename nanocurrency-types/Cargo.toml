@@ -1,6 +1,6 @@
 [package]
 name = "nanocurrency-types"
-version = "0.3.2"
+version = "0.3.4"
 authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 description = "A set of types for the Nano cryptocurrency"
 license = "BSD-2-Clause"
