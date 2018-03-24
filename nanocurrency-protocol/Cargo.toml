@@ -1,6 +1,6 @@
 [package]
 name = "nanocurrency-protocol"
-version = "0.4.2"
+version = "0.5.0"
 authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 description = "Protocol code for the Nano cryptocurrency"
 license = "BSD-2-Clause"
@@ -10,4 +10,4 @@ repository = "https://github.com/PlasmaPower/railroad"
 byteorder = { version = "1", features = ["i128"] }
 bytes = "0.4"
 tokio-io = "0.1"
-nanocurrency-types = { version = "0.3.1", path = "../nanocurrency-types" }
+nanocurrency-types = { version = "0.3.6", path = "../nanocurrency-types" }

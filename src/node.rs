@@ -34,7 +34,7 @@ pub fn run(conf: NodeConfig) -> Box<Future<Item = (), Error = ()>> {
                         }));
                     }
                 }
-                Message::ConfirmAck { block, .. } => {
+                Message::ConfirmAck(Vote { block, .. }) => {
                     if block.work_valid(network) {
                         debug!("got block: {:?}", block.get_hash());
                         // TODO processing

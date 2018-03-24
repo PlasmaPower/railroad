@@ -104,11 +104,11 @@ fn confirm_req() {
 #[test]
 fn confirm_ack() {
     for block in get_test_blocks() {
-        encode_decode(Message::ConfirmAck {
+        encode_decode(Message::ConfirmAck(Vote {
             account: Account([5; 32]),
             signature: Signature::from_bytes(&[6u8; 64] as _).unwrap(),
             sequence: 123456,
             block: block.clone(),
-        });
+        }));
     }
 }

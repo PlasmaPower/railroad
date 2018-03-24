@@ -58,12 +58,7 @@ pub enum Message {
     Keepalive([SocketAddrV6; 8]),
     Publish(Block),
     ConfirmReq(Block),
-    ConfirmAck {
-        account: Account,
-        signature: Signature,
-        sequence: u64,
-        block: Block,
-    },
+    ConfirmAck(Vote),
 }
 
 pub struct NanoCurrencyCodec;
@@ -321,12 +316,12 @@ impl codec::Decoder for NanoCurrencyCodec {
                 let signature = Signature::from_bytes(&signature).unwrap();
                 let sequence = cursor.read_u64::<LittleEndian>()?;
                 let block = Self::read_block(&mut cursor, ty as u8)?;
-                Message::ConfirmAck {
+                Message::ConfirmAck(Vote {
                     account,
                     signature,
                     sequence,
                     block,
-                }
+                })
             }
             6 | 7 | 8 => {
                 return Err(io::Error::new(
@@ -380,12 +375,12 @@ impl codec::Encoder for NanoCurrencyCodec {
                 buf.put_u16::<LittleEndian>((type_num & 0x0f) << 8);
                 Self::write_block(buf, block);
             }
-            Message::ConfirmAck {
+            Message::ConfirmAck(Vote {
                 account,
                 signature,
                 sequence,
                 block,
-            } => {
+            }) => {
                 buf.put_slice(&[5]);
                 let type_num = Self::block_type_num(&block) as u16;
                 buf.put_u16::<LittleEndian>((type_num & 0x0f) << 8);

@@ -22,6 +22,7 @@ use num_traits::cast::ToPrimitive;
 
 extern crate ed25519_dalek;
 pub use ed25519_dalek::Signature;
+use ed25519_dalek::PublicKey;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Network {
@@ -74,6 +75,12 @@ pub const ACCOUNT_LOOKUP: &[u8] = b"13456789abcdefghijkmnopqrstuwxyz";
 #[derive(Default, PartialEq, Eq, Clone)]
 pub struct Account(pub [u8; 32]);
 
+impl Account {
+    pub fn as_pubkey(&self) -> PublicKey {
+        PublicKey::from_bytes(&self.0).unwrap()
+    }
+}
+
 impl fmt::Debug for Account {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write_hex(f, &self.0)
@@ -102,6 +109,12 @@ impl fmt::Display for Account {
             .map(|&c| c as char)
             .collect::<String>();
         write!(f, "{}", s)
+    }
+}
+
+impl Into<PublicKey> for Account {
+    fn into(self) -> PublicKey {
+        self.as_pubkey()
     }
 }
 
@@ -435,3 +448,36 @@ impl PartialEq for Block {
 }
 
 impl Eq for Block {}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Vote {
+    pub account: Account,
+    pub signature: Signature,
+    pub sequence: u64,
+    pub block: Block,
+}
+
+impl Hash for Vote {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(&self.block.get_hash().0);
+        let mut seq_bytes = [0u8; 8];
+        LittleEndian::write_u64(&mut seq_bytes, self.sequence);
+        state.write(&seq_bytes);
+    }
+}
+
+impl Vote {
+    pub fn get_hash(&self) -> [u8; 32] {
+        let mut hasher = Blake2b::new(32).expect("Unsupported hash length");
+        self.hash(&mut DigestHasher(&mut hasher));
+        let mut output = [0u8; 32];
+        hasher
+            .variable_result(&mut output)
+            .expect("Incorrect hash length");
+        output
+    }
+
+    pub fn verify(&self) -> bool {
+        self.account.as_pubkey().verify::<Blake2b>(&self.get_hash(), &self.signature)
+    }
+}
