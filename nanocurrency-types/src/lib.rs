@@ -83,7 +83,7 @@ impl Account {
 
 impl fmt::Debug for Account {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write_hex(f, &self.0)
+        fmt::Display::fmt(&self, f)
     }
 }
 
