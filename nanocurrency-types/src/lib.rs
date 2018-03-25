@@ -24,6 +24,14 @@ extern crate ed25519_dalek;
 pub use ed25519_dalek::Signature;
 use ed25519_dalek::PublicKey;
 
+extern crate hex;
+
+extern crate serde;
+use serde::de::Error as SerdeError;
+
+#[macro_use]
+extern crate serde_derive;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Network {
     Test,
@@ -43,10 +51,83 @@ fn write_hex(f: &mut fmt::Formatter, bytes: &[u8]) -> fmt::Result {
     Ok(())
 }
 
-#[derive(Debug, Clone, PartialEq)]
+struct InternalHexVisitor {
+    byte_len: usize,
+}
+
+impl InternalHexVisitor {
+    fn new(byte_len: usize) -> Self {
+        InternalHexVisitor { byte_len }
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for InternalHexVisitor {
+    type Value = Vec<u8>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            formatter,
+            "a hex string representing {} bytes",
+            self.byte_len
+        )
+    }
+
+    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Vec<u8>, E> {
+        if (v.len() / 2) == self.byte_len {
+            let bytes = hex::decode(&v)
+                .map_err(|_| E::invalid_value(serde::de::Unexpected::Str(&v), &self))?;
+            // Should always be true, but just in case.
+            if bytes.len() == self.byte_len {
+                return Ok(bytes);
+            }
+        }
+        Err(E::invalid_length(v.len(), &self))
+    }
+}
+
+trait InternalFromHex: Sized {
+    fn from_hex<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error>;
+}
+
+impl InternalFromHex for Signature {
+    fn from_hex<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer
+            .deserialize_str(InternalHexVisitor::new(64))
+            .and_then(|bytes| {
+                Signature::from_bytes(&bytes).map_err(|_| {
+                    D::Error::invalid_value(
+                        serde::de::Unexpected::Bytes(&bytes),
+                        &"a valid ed25519 signature",
+                    )
+                })
+            })
+    }
+}
+
+impl InternalFromHex for u64 {
+    fn from_hex<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer
+            .deserialize_str(InternalHexVisitor::new(8))
+            .map(|bytes| BigEndian::read_u64(&bytes))
+    }
+}
+
+impl InternalFromHex for [u8; 32] {
+    fn from_hex<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer
+            .deserialize_str(InternalHexVisitor::new(32))
+            .map(|bytes| {
+                let arr = [0u8; 32];
+                arr.clone_from_slice(&bytes);
+                arr
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct BlockHeader {
-    pub signature: Signature,
-    pub work: u64,
+    #[serde(deserialize_with = "InternalFromHex::from_hex")] pub signature: Signature,
+    #[serde(deserialize_with = "InternalFromHex::from_hex")] pub work: u64,
 }
 
 #[derive(Default, PartialEq, Eq, Clone)]
@@ -186,7 +267,9 @@ impl Hash for Account {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)] // , Deserialize
+//#[serde(tag = "type")]
+//#[serde(rename_all = "lowercase")]
 pub enum BlockInner {
     Send {
         previous: BlockHash,
@@ -219,6 +302,7 @@ pub enum BlockInner {
         representative: Account,
         balance: u128,
         /// Link field contains source block_hash if receiving, destination account if sending
+        //#[serde(deserialize_with = "InternalFromHex::from_hex")]
         link: [u8; 32],
     },
 }
@@ -363,7 +447,9 @@ impl BlockInner {
             BlockInner::Receive { previous, .. } => BlockRoot::Block(previous),
             BlockInner::Change { previous, .. } => BlockRoot::Block(previous),
             BlockInner::Open { account, .. } => BlockRoot::Account(account),
-            BlockInner::State { account, previous, .. } => {
+            BlockInner::State {
+                account, previous, ..
+            } => {
                 let prev_is_zero = previous.0.iter().all(|&x| x == 0);
                 if prev_is_zero {
                     BlockRoot::Account(account)
@@ -385,10 +471,10 @@ impl BlockInner {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone)] // , Deserialize
 pub struct Block {
-    pub inner: BlockInner,
-    pub header: BlockHeader,
+    /*#[serde(flatten)]*/ pub inner: BlockInner,
+    /*#[serde(flatten)]*/ pub header: BlockHeader,
 }
 
 impl Block {
@@ -478,6 +564,8 @@ impl Vote {
     }
 
     pub fn verify(&self) -> bool {
-        self.account.as_pubkey().verify::<Blake2b>(&self.get_hash(), &self.signature)
+        self.account
+            .as_pubkey()
+            .verify::<Blake2b>(&self.get_hash(), &self.signature)
     }
 }

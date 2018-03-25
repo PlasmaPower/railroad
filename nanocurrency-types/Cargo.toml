@@ -1,6 +1,6 @@
 [package]
 name = "nanocurrency-types"
-version = "0.3.7"
+version = "0.3.8"
 authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 description = "A set of types for the Nano cryptocurrency"
 license = "BSD-2-Clause"
@@ -13,3 +13,6 @@ byteorder = { version = "1", features = ["i128"] }
 ed25519-dalek = "0.6"
 num-traits = "0.1"
 num-bigint = "0.1"
+serde = "1.0.34"
+serde_derive = "1.0.34"
+hex = "0.3"
