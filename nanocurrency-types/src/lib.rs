@@ -117,7 +117,7 @@ impl InternalFromHex for [u8; 32] {
         deserializer
             .deserialize_str(InternalHexVisitor::new(32))
             .map(|bytes| {
-                let arr = [0u8; 32];
+                let mut arr = [0u8; 32];
                 arr.clone_from_slice(&bytes);
                 arr
             })
