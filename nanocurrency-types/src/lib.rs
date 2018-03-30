@@ -27,10 +27,19 @@ use ed25519_dalek::PublicKey;
 extern crate hex;
 
 extern crate serde;
+use serde::de;
+use serde::de::Deserialize;
 use serde::de::Error as SerdeError;
 
 #[macro_use]
 extern crate serde_derive;
+
+#[cfg(test)]
+#[macro_use]
+extern crate serde_json;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Network {
@@ -61,7 +70,7 @@ impl InternalHexVisitor {
     }
 }
 
-impl<'de> serde::de::Visitor<'de> for InternalHexVisitor {
+impl<'de> de::Visitor<'de> for InternalHexVisitor {
     type Value = Vec<u8>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -72,10 +81,10 @@ impl<'de> serde::de::Visitor<'de> for InternalHexVisitor {
         )
     }
 
-    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Vec<u8>, E> {
+    fn visit_str<E: de::Error>(self, v: &str) -> Result<Vec<u8>, E> {
         if (v.len() / 2) == self.byte_len {
             let bytes = hex::decode(&v)
-                .map_err(|_| E::invalid_value(serde::de::Unexpected::Str(&v), &self))?;
+                .map_err(|_| E::invalid_value(de::Unexpected::Str(&v), &self))?;
             // Should always be true, but just in case.
             if bytes.len() == self.byte_len {
                 return Ok(bytes);
@@ -86,17 +95,17 @@ impl<'de> serde::de::Visitor<'de> for InternalHexVisitor {
 }
 
 trait InternalFromHex: Sized {
-    fn from_hex<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error>;
+    fn from_hex<'de, D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error>;
 }
 
 impl InternalFromHex for Signature {
-    fn from_hex<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    fn from_hex<'de, D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer
             .deserialize_str(InternalHexVisitor::new(64))
             .and_then(|bytes| {
                 Signature::from_bytes(&bytes).map_err(|_| {
                     D::Error::invalid_value(
-                        serde::de::Unexpected::Bytes(&bytes),
+                        de::Unexpected::Bytes(&bytes),
                         &"a valid ed25519 signature",
                     )
                 })
@@ -105,7 +114,7 @@ impl InternalFromHex for Signature {
 }
 
 impl InternalFromHex for u64 {
-    fn from_hex<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    fn from_hex<'de, D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer
             .deserialize_str(InternalHexVisitor::new(8))
             .map(|bytes| BigEndian::read_u64(&bytes))
@@ -113,11 +122,11 @@ impl InternalFromHex for u64 {
 }
 
 impl InternalFromHex for [u8; 32] {
-    fn from_hex<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    fn from_hex<'de, D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer
             .deserialize_str(InternalHexVisitor::new(32))
             .map(|bytes| {
-                let arr = [0u8; 32];
+                let mut arr = [0u8; 32];
                 arr.clone_from_slice(&bytes);
                 arr
             })
@@ -148,6 +157,18 @@ impl fmt::Display for BlockHash {
 impl Hash for BlockHash {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(&self.0);
+    }
+}
+
+impl<'de> Deserialize<'de> for BlockHash {
+    fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer
+            .deserialize_str(InternalHexVisitor::new(32))
+            .map(|bytes| {
+                let mut arr = [0u8; 32];
+                arr.clone_from_slice(&bytes);
+                BlockHash(arr)
+            })
     }
 }
 
@@ -205,6 +226,17 @@ pub enum AccountParseError {
     MissingPrefix,
     InvalidCharacter(char),
     InvalidChecksum,
+}
+
+impl fmt::Display for AccountParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            AccountParseError::IncorrectLength => write!(f, "invalid length"),
+            AccountParseError::MissingPrefix => write!(f, "missing prefix"),
+            AccountParseError::InvalidCharacter(c) => write!(f, "invalid character {:?}", c),
+            AccountParseError::InvalidChecksum => write!(f, "invalid checksum"),
+        }
+    }
 }
 
 impl FromStr for Account {
@@ -267,14 +299,30 @@ impl Hash for Account {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)] // , Deserialize
-//#[serde(tag = "type")]
-//#[serde(rename_all = "lowercase")]
+fn serde_from_str<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+    where T: FromStr,
+          T::Err: fmt::Display,
+          D: de::Deserializer<'de>
+{
+    let s: String = String::deserialize(deserializer)?;
+    T::from_str(&s).map_err(de::Error::custom)
+}
+
+impl<'de> Deserialize<'de> for Account {
+    fn deserialize<D: de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        serde_from_str(deserializer)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "lowercase")]
 pub enum BlockInner {
     Send {
         previous: BlockHash,
         destination: Account,
         /// The balance of the account *after* the send.
+        #[serde(deserialize_with = "serde_from_str")]
         balance: u128,
     },
     Receive {
@@ -300,9 +348,10 @@ pub enum BlockInner {
         account: Account,
         previous: BlockHash,
         representative: Account,
+        #[serde(deserialize_with = "serde_from_str")]
         balance: u128,
         /// Link field contains source block_hash if receiving, destination account if sending
-        //#[serde(deserialize_with = "InternalFromHex::from_hex")]
+        #[serde(deserialize_with = "InternalFromHex::from_hex")]
         link: [u8; 32],
     },
 }
@@ -471,10 +520,10 @@ impl BlockInner {
     }
 }
 
-#[derive(Debug, Clone)] // , Deserialize
+#[derive(Debug, Clone, Deserialize)]
 pub struct Block {
-    /*#[serde(flatten)]*/ pub inner: BlockInner,
-    /*#[serde(flatten)]*/ pub header: BlockHeader,
+    #[serde(flatten)] pub inner: BlockInner,
+    #[serde(flatten)] pub header: BlockHeader,
 }
 
 impl Block {
