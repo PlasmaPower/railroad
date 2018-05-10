@@ -52,12 +52,18 @@ pub fn addr_to_ipv6(addr: SocketAddr) -> SocketAddrV6 {
     }
 }
 
-struct IgnoreErrors<S: Stream, E> where S::Error: Debug {
+struct IgnoreErrors<S: Stream, E>
+where
+    S::Error: Debug,
+{
     inner: S,
     err_phantom: PhantomData<E>,
 }
 
-impl<S: Stream, E: Debug> Stream for IgnoreErrors<S, E> where S::Error: Debug {
+impl<S: Stream, E: Debug> Stream for IgnoreErrors<S, E>
+where
+    S::Error: Debug,
+{
     type Item = S::Item;
     type Error = E;
 
@@ -71,7 +77,10 @@ impl<S: Stream, E: Debug> Stream for IgnoreErrors<S, E> where S::Error: Debug {
     }
 }
 
-fn ignore_errors<S: Stream, E>(stream: S) -> IgnoreErrors<S, E> where S::Error: Debug {
+fn ignore_errors<S: Stream, E>(stream: S) -> IgnoreErrors<S, E>
+where
+    S::Error: Debug,
+{
     IgnoreErrors {
         inner: stream,
         err_phantom: PhantomData,
@@ -132,7 +141,6 @@ impl PeeringManagerState {
     }
 }
 
-#[derive(Clone)]
 pub struct PeeringManagerBuilder<F, I, II>
 where
     I: Iterator<Item = (Message, SocketAddr)>,
@@ -145,6 +153,7 @@ where
     network: Network,
     message_handler: F,
     state_base: Rc<RefCell<PeeringManagerState>>,
+    send_messages: Box<Stream<Item = (Message, SocketAddr), Error = ()>>,
 }
 
 impl<F, I, II> PeeringManagerBuilder<F, I, II>
@@ -161,6 +170,7 @@ where
             network: Network::Live,
             message_handler,
             state_base: Default::default(),
+            send_messages: Box::new(stream::empty()),
         }
     }
 
@@ -186,6 +196,14 @@ where
 
     pub fn state_base(mut self, value: Rc<RefCell<PeeringManagerState>>) -> Self {
         self.state_base = value;
+        self
+    }
+
+    pub fn send_messages(
+        mut self,
+        value: Box<Stream<Item = (Message, SocketAddr), Error = ()>>,
+    ) -> Self {
+        self.send_messages = value;
         self
     }
 
@@ -308,9 +326,12 @@ where
                 stream::iter_ok::<_, io::Error>(keepalives.into_iter())
             })
             .flatten();
+        let send_messages = self.send_messages.map(move |(msg, addr)| ((network, msg), addr));
         Ok(Box::new(
             sink.send_all(
-                ignore_errors::<_, io::Error>(process_messages).select(ignore_errors(keepalive)),
+                ignore_errors::<_, io::Error>(process_messages)
+                    .select(ignore_errors(keepalive))
+                    .select(ignore_errors(send_messages)),
             ).map(|_| ())
                 .map_err(|_| ()),
         ))

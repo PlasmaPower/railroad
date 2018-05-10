@@ -1,5 +1,3 @@
-#![feature(i128_type)]
-
 use std::net::SocketAddr;
 use std::process;
 use std::collections::HashMap;
