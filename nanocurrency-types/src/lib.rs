@@ -1,11 +1,9 @@
-#![feature(i128_type)]
-
-use std::fmt;
-use std::str;
-use std::iter;
-use std::hash::{Hash, Hasher};
-use std::str::FromStr;
 use std::convert::AsRef;
+use std::fmt;
+use std::hash::{Hash, Hasher};
+use std::iter;
+use std::str;
+use std::str::FromStr;
 
 extern crate blake2;
 use blake2::Blake2b;
@@ -21,16 +19,24 @@ extern crate num_traits;
 use num_traits::cast::ToPrimitive;
 
 extern crate ed25519_dalek;
-pub use ed25519_dalek::Signature;
 use ed25519_dalek::PublicKey;
+pub use ed25519_dalek::Signature;
 
 extern crate hex;
 
 extern crate serde;
+use serde::Deserialize;
+use serde::de::Visitor as serdeVisitor;
 use serde::de::Error as SerdeError;
 
 #[macro_use]
 extern crate serde_derive;
+
+#[cfg(test)]
+extern crate serde_json;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Network {
@@ -41,7 +47,9 @@ pub enum Network {
 
 #[macro_export]
 macro_rules! zero_v6_addr {
-    () => { ::std::net::SocketAddrV6::new(::std::net::Ipv6Addr::from([0u8; 16]), 0, 0, 0) };
+    () => {
+        ::std::net::SocketAddrV6::new(::std::net::Ipv6Addr::from([0u8; 16]), 0, 0, 0)
+    };
 }
 
 fn write_hex(f: &mut fmt::Formatter, bytes: &[u8]) -> fmt::Result {
@@ -112,22 +120,32 @@ impl InternalFromHex for u64 {
     }
 }
 
-impl InternalFromHex for [u8; 32] {
+impl InternalFromHex for u128 {
+    fn from_hex<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer
+            .deserialize_str(InternalHexVisitor::new(16))
+            .map(|bytes| BigEndian::read_u128(&bytes))
+    }
+}
+
+impl InternalFromHex for BlockHash {
     fn from_hex<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer
             .deserialize_str(InternalHexVisitor::new(32))
             .map(|bytes| {
-                let mut arr = [0u8; 32];
-                arr.clone_from_slice(&bytes);
-                arr
+                let mut hash = BlockHash([0u8; 32]);
+                hash.0.clone_from_slice(&bytes);
+                hash
             })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct BlockHeader {
-    #[serde(deserialize_with = "InternalFromHex::from_hex")] pub signature: Signature,
-    #[serde(deserialize_with = "InternalFromHex::from_hex")] pub work: u64,
+    #[serde(deserialize_with = "InternalFromHex::from_hex")]
+    pub signature: Signature,
+    #[serde(deserialize_with = "InternalFromHex::from_hex")]
+    pub work: u64,
 }
 
 #[derive(Default, PartialEq, Eq, Clone)]
@@ -199,12 +217,23 @@ impl Into<PublicKey> for Account {
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum AccountParseError {
     IncorrectLength,
     MissingPrefix,
     InvalidCharacter(char),
     InvalidChecksum,
+}
+
+impl fmt::Display for AccountParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            AccountParseError::IncorrectLength => write!(f, "incorrect length"),
+            AccountParseError::MissingPrefix => write!(f, "missing prefix"),
+            AccountParseError::InvalidCharacter(c) => write!(f, "invalid character: {:?}", c),
+            AccountParseError::InvalidChecksum => write!(f, "invalid checksum"),
+        }
+    }
 }
 
 impl FromStr for Account {
@@ -267,42 +296,78 @@ impl Hash for Account {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)] // , Deserialize
-//#[serde(tag = "type")]
-//#[serde(rename_all = "lowercase")]
+fn serde_from_str<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    T: FromStr,
+    T::Err: fmt::Display,
+    D: serde::de::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    T::from_str(&s).map_err(serde::de::Error::custom)
+}
+
+fn deserialize_link<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<[u8; 32], D::Error> {
+    let s = String::deserialize(deserializer)?;
+    if s.starts_with("xrb_") || s.starts_with("nano_") {
+        Account::from_str(&s).map_err(serde::de::Error::custom).map(|a| a.0)
+    } else {
+        let visitor = InternalHexVisitor::new(32);
+        let mut bytes = [0u8; 32];
+        bytes.clone_from_slice(&visitor.visit_str(&s)?);
+        Ok(bytes)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "lowercase")]
 pub enum BlockInner {
     Send {
+        #[serde(deserialize_with = "InternalFromHex::from_hex")]
         previous: BlockHash,
+        #[serde(deserialize_with = "serde_from_str")]
         destination: Account,
         /// The balance of the account *after* the send.
+        #[serde(deserialize_with = "InternalFromHex::from_hex")]
         balance: u128,
     },
     Receive {
+        #[serde(deserialize_with = "InternalFromHex::from_hex")]
         previous: BlockHash,
         /// The block we're receiving.
+        #[serde(deserialize_with = "InternalFromHex::from_hex")]
         source: BlockHash,
     },
     /// The first "receive" in an account chain.
     /// Creates the account, and sets the representative.
     Open {
         /// The block we're receiving.
+        #[serde(deserialize_with = "InternalFromHex::from_hex")]
         source: BlockHash,
+        #[serde(deserialize_with = "serde_from_str")]
         representative: Account,
+        #[serde(deserialize_with = "serde_from_str")]
         account: Account,
     },
     /// Changes the representative for an account.
     Change {
+        #[serde(deserialize_with = "InternalFromHex::from_hex")]
         previous: BlockHash,
+        #[serde(deserialize_with = "serde_from_str")]
         representative: Account,
     },
     /// A universal transaction which contains the account state.
     State {
+        #[serde(deserialize_with = "serde_from_str")]
         account: Account,
+        #[serde(deserialize_with = "InternalFromHex::from_hex")]
         previous: BlockHash,
+        #[serde(deserialize_with = "serde_from_str")]
         representative: Account,
+        #[serde(deserialize_with = "serde_from_str")]
         balance: u128,
         /// Link field contains source block_hash if receiving, destination account if sending
-        //#[serde(deserialize_with = "InternalFromHex::from_hex")]
+        #[serde(deserialize_with = "deserialize_link")]
         link: [u8; 32],
     },
 }
@@ -401,6 +466,79 @@ impl Into<[u8; 32]> for BlockRoot {
     }
 }
 
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum BlockType {
+    Send,
+    Receive,
+    Open,
+    Change,
+    State,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum BlockTypeCodeError {
+    Invalid,
+    NotABlock,
+    Unknown,
+}
+
+impl BlockType {
+    pub fn name(self) -> &'static str {
+        match self {
+            BlockType::Send => "send",
+            BlockType::Receive => "receive",
+            BlockType::Open => "open",
+            BlockType::Change => "change",
+            BlockType::State => "state",
+        }
+    }
+
+    pub fn size(self) -> usize {
+        match self {
+            BlockType::Send => 32 + 32 + 16,
+            BlockType::Receive => 32 + 32,
+            BlockType::Open => 32 + 32 + 32,
+            BlockType::Change => 32 + 32,
+            BlockType::State => 32 + 32 + 32 + 16 + 32,
+        }
+    }
+
+    pub fn to_type_code(self) -> u8 {
+        self.into()
+    }
+
+    pub fn from_type_code(code: u8) -> Result<BlockType, BlockTypeCodeError> {
+        match code {
+            0 => Err(BlockTypeCodeError::Invalid),
+            1 => Err(BlockTypeCodeError::NotABlock),
+            2 => Ok(BlockType::Send),
+            3 => Ok(BlockType::Receive),
+            4 => Ok(BlockType::Open),
+            5 => Ok(BlockType::Change),
+            6 => Ok(BlockType::State),
+            _ => Err(BlockTypeCodeError::Unknown),
+        }
+    }
+}
+
+impl Into<u8> for BlockType {
+    fn into(self) -> u8 {
+        match self {
+            BlockType::Send => 2,
+            BlockType::Receive => 3,
+            BlockType::Open => 4,
+            BlockType::Change => 5,
+            BlockType::State => 6,
+        }
+    }
+}
+
+impl fmt::Display for BlockType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.name())
+    }
+}
+
 impl BlockInner {
     pub fn get_hash(&self) -> BlockHash {
         let mut hasher = Blake2b::new(32).expect("Unsupported hash length");
@@ -460,21 +598,27 @@ impl BlockInner {
         }
     }
 
-    pub fn size(&self) -> usize {
+    pub fn ty(&self) -> BlockType {
         match *self {
-            BlockInner::Send { .. } => 32 + 32 + 16,
-            BlockInner::Receive { .. } => 32 + 32,
-            BlockInner::Change { .. } => 32 + 32,
-            BlockInner::Open { .. } => 32 + 32 + 32,
-            BlockInner::State { .. } => 32 + 32 + 32 + 16 + 32,
+            BlockInner::Send { .. } => BlockType::Send,
+            BlockInner::Receive { .. } => BlockType::Receive,
+            BlockInner::Change { .. } => BlockType::Change,
+            BlockInner::Open { .. } => BlockType::Open,
+            BlockInner::State { .. } => BlockType::State,
         }
+    }
+
+    pub fn size(&self) -> usize {
+        self.ty().size()
     }
 }
 
-#[derive(Debug, Clone)] // , Deserialize
+#[derive(Debug, Clone, Deserialize)]
 pub struct Block {
-    /*#[serde(flatten)]*/ pub inner: BlockInner,
-    /*#[serde(flatten)]*/ pub header: BlockHeader,
+    #[serde(flatten)]
+    pub inner: BlockInner,
+    #[serde(flatten)]
+    pub header: BlockHeader,
 }
 
 impl Block {
@@ -513,6 +657,10 @@ impl Block {
 
     pub fn work_valid(&self, network: Network) -> bool {
         self.work_value() > self.work_threshold(network)
+    }
+
+    pub fn ty(&self) -> BlockType {
+        self.inner.ty()
     }
 
     pub fn size(&self) -> usize {
