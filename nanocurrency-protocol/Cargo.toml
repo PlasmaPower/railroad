@@ -1,6 +1,6 @@
 [package]
 name = "nanocurrency-protocol"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 description = "Protocol code for the Nano cryptocurrency"
 license = "BSD-2-Clause"

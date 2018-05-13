@@ -1,5 +1,3 @@
-#![feature(i128_type)]
-
 use std::io;
 use std::io::prelude::*;
 use std::io::Cursor;
@@ -26,15 +24,27 @@ const NET_VERSION_MAX: u8 = 0x07;
 const NET_VERSION_MIN: u8 = 0x01;
 
 trait BufMutExt: BufMut {
-    fn put_i128<T: ByteOrder>(&mut self, n: i128) {
+    fn put_i128_le(&mut self, n: i128) {
         let mut buf = [0u8; 16];
-        T::write_i128(&mut buf, n);
+        LittleEndian::write_i128(&mut buf, n);
         self.put_slice(&buf)
     }
 
-    fn put_u128<T: ByteOrder>(&mut self, n: u128) {
+    fn put_i128_be(&mut self, n: i128) {
         let mut buf = [0u8; 16];
-        T::write_u128(&mut buf, n);
+        BigEndian::write_i128(&mut buf, n);
+        self.put_slice(&buf)
+    }
+
+    fn put_u128_le(&mut self, n: u128) {
+        let mut buf = [0u8; 16];
+        LittleEndian::write_u128(&mut buf, n);
+        self.put_slice(&buf)
+    }
+
+    fn put_u128_be(&mut self, n: u128) {
+        let mut buf = [0u8; 16];
+        BigEndian::write_u128(&mut buf, n);
         self.put_slice(&buf)
     }
 }
@@ -174,7 +184,7 @@ impl NanoCurrencyCodec {
             } => {
                 buf.put_slice(&previous.0);
                 buf.put_slice(&destination.0);
-                buf.put_u128::<BigEndian>(balance);
+                buf.put_u128_be(balance);
             }
             BlockInner::Receive { previous, source } => {
                 buf.put_slice(&previous.0);
@@ -206,16 +216,16 @@ impl NanoCurrencyCodec {
                 buf.put_slice(&account.0);
                 buf.put_slice(&previous.0);
                 buf.put_slice(&representative.0);
-                buf.put_u128::<BigEndian>(balance);
+                buf.put_u128_be(balance);
                 buf.put_slice(&link as &[u8]);
                 work_big_endian = true;
             }
         };
         buf.put_slice(&block.header.signature.to_bytes() as &[u8]);
         if work_big_endian {
-            buf.put_u64::<BigEndian>(block.header.work);
+            buf.put_u64_be(block.header.work);
         } else {
-            buf.put_u64::<LittleEndian>(block.header.work);
+            buf.put_u64_le(block.header.work);
         }
     }
 
@@ -360,19 +370,19 @@ impl codec::Encoder for NanoCurrencyCodec {
                 buf.reserve(peers.len() * (16 + 2));
                 for peer in peers.iter() {
                     buf.put_slice(&peer.ip().octets());
-                    buf.put_u16::<LittleEndian>(peer.port());
+                    buf.put_u16_le(peer.port());
                 }
             }
             Message::Publish(block) => {
                 buf.put_slice(&[3]);
                 let type_num = Self::block_type_num(&block) as u16;
-                buf.put_u16::<LittleEndian>((type_num & 0x0f) << 8);
+                buf.put_u16_le((type_num & 0x0f) << 8);
                 Self::write_block(buf, block);
             }
             Message::ConfirmReq(block) => {
                 buf.put_slice(&[4]);
                 let type_num = Self::block_type_num(&block) as u16;
-                buf.put_u16::<LittleEndian>((type_num & 0x0f) << 8);
+                buf.put_u16_le((type_num & 0x0f) << 8);
                 Self::write_block(buf, block);
             }
             Message::ConfirmAck(Vote {
@@ -383,11 +393,11 @@ impl codec::Encoder for NanoCurrencyCodec {
             }) => {
                 buf.put_slice(&[5]);
                 let type_num = Self::block_type_num(&block) as u16;
-                buf.put_u16::<LittleEndian>((type_num & 0x0f) << 8);
+                buf.put_u16_le((type_num & 0x0f) << 8);
                 buf.reserve(32 + 64 + 8);
                 buf.put_slice(&account.0);
                 buf.put_slice(&signature.to_bytes());
-                buf.put_u64::<LittleEndian>(sequence);
+                buf.put_u64_le(sequence);
                 Self::write_block(buf, block);
             }
         }
