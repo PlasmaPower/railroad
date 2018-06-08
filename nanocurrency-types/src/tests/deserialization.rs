@@ -193,3 +193,45 @@ fn deser_state_block() {
         panic!("block.inner was not a state");
     }
 }
+
+#[test]
+fn deser_odd() {
+    let json = r#"{
+        "type": "state",
+        "account": "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
+        "previous": "0",
+        "representative": "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
+        "balance": "900000000000000000000000000000",
+        "link": "1221C72F38AAB95214BBF730BBB5A7792CDC55E5E18F7E4CE747D189B36DE42C",
+        "signature": "E7A791BC1AB92C91E3C0FAF37265B3832EE5E3A86070D5AADC734DFFB2788582FE6B2697B7C871BF2ECEC45198C444EA1FF95FCF3922C93B25710B85D0424B0B",
+        "work": "123"
+    }
+    "#;
+    let block: Block = serde_json::from_str(json).expect("Failed to deserialize block");
+    assert_eq!(block.previous(), None);
+    assert_eq!(block.header.work, 0x123);
+    let json = r#"{
+        "type": "state",
+        "account": "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
+        "previous": "0",
+        "representative": "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
+        "balance": "900000000000000000000000000000",
+        "link": "1221C72F38AAB95214BBF730BBB5A7792CDC55E5E18F7E4CE747D189B36DE42C",
+        "signature": "E7A791BC1AB92C91E3C0FAF37265B3832EE5E3A86070D5AADC734DFFB2788582FE6B2697B7C871BF2ECEC45198C444EA1FF95FCF3922C93B25710B85D0424B0B",
+        "work": "10000000000000000000000000000"
+    }
+    "#;
+    assert!(serde_json::from_str::<Block>(json).is_err());
+    let json = r#"{
+        "type": "state",
+        "account": "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
+        "previous": "0",
+        "representative": "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
+        "balance": "900000000000000000000000000000",
+        "link": "1221C72F38AAB95214BBF730BBB5A7792CDC55E5E18F7E4CE747D189B36DE42C",
+        "signature": "E7A791BC1AB92C91E3C0FAF37265B3832EE5E3A86070D5AADC734DFFB2788582FE6B2697B7C871BF2ECEC45198C444EA1FF95FCF3922C93B25710B85D0424B0B",
+        "work": "G"
+    }
+    "#;
+    assert!(serde_json::from_str::<Block>(json).is_err());
+}

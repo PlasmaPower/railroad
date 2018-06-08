@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::convert::AsRef;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -25,9 +26,9 @@ pub use ed25519_dalek::Signature;
 extern crate hex;
 
 extern crate serde;
-use serde::Deserialize;
-use serde::de::Visitor as serdeVisitor;
 use serde::de::Error as SerdeError;
+use serde::de::Visitor as serdeVisitor;
+use serde::Deserialize;
 
 #[macro_use]
 extern crate serde_derive;
@@ -81,15 +82,26 @@ impl<'de> serde::de::Visitor<'de> for InternalHexVisitor {
     }
 
     fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Vec<u8>, E> {
-        if (v.len() / 2) == self.byte_len {
-            let bytes = hex::decode(&v)
-                .map_err(|_| E::invalid_value(serde::de::Unexpected::Str(&v), &self))?;
-            // Should always be true, but just in case.
-            if bytes.len() == self.byte_len {
-                return Ok(bytes);
-            }
+        if v.len() > self.byte_len * 2 {
+            return Err(E::invalid_length(v.len(), &self));
         }
-        Err(E::invalid_length(v.len(), &self))
+        let mut hex_string = Cow::Borrowed(v);
+        if v.len() < self.byte_len * 2 {
+            let mut new_string = String::with_capacity(self.byte_len * 2);
+            for _ in 0..(self.byte_len * 2 - v.len()) {
+                new_string.push('0');
+            }
+            new_string.extend(v.chars());
+            hex_string = Cow::Owned(new_string);
+        }
+        let bytes = hex::decode((&hex_string).as_bytes())
+            .map_err(|_| E::invalid_value(serde::de::Unexpected::Str(&v), &self))?;
+        assert_eq!(
+            bytes.len(),
+            self.byte_len,
+            "Hex decoding produced unexpected length"
+        );
+        Ok(bytes)
     }
 }
 
@@ -306,10 +318,14 @@ where
     T::from_str(&s).map_err(serde::de::Error::custom)
 }
 
-fn deserialize_link<'de, D: serde::de::Deserializer<'de>>(deserializer: D) -> Result<[u8; 32], D::Error> {
+fn deserialize_link<'de, D: serde::de::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<[u8; 32], D::Error> {
     let s = String::deserialize(deserializer)?;
     if s.starts_with("xrb_") || s.starts_with("nano_") {
-        Account::from_str(&s).map_err(serde::de::Error::custom).map(|a| a.0)
+        Account::from_str(&s)
+            .map_err(serde::de::Error::custom)
+            .map(|a| a.0)
     } else {
         let visitor = InternalHexVisitor::new(32);
         let mut bytes = [0u8; 32];
