@@ -254,12 +254,16 @@ impl FromStr for Account {
     fn from_str(s: &str) -> Result<Account, AccountParseError> {
         let mut s_chars = s.chars();
         let mut ext_pubkey = BigInt::default();
-        if !(&mut s_chars).take(4).eq("xrb_".chars()) {
+        if s.starts_with("xrb_") {
+            (&mut s_chars).take(4).count();
+        } else if s.starts_with("nano_") {
+            (&mut s_chars).take(5).count();
+        } else {
             return Err(AccountParseError::MissingPrefix);
         }
-        let mut i = 4;
+        let mut i = 0;
         for ch in s_chars {
-            if i >= 64 {
+            if i >= 60 {
                 return Err(AccountParseError::IncorrectLength);
             }
             let lookup = ACCOUNT_LOOKUP.iter().position(|&c| (c as char) == ch);
@@ -273,7 +277,7 @@ impl FromStr for Account {
             ext_pubkey = ext_pubkey + byte;
             i += 1;
         }
-        if i != 64 {
+        if i != 60 {
             return Err(AccountParseError::IncorrectLength);
         }
         let ext_pubkey = ext_pubkey.to_bytes_le().1;
