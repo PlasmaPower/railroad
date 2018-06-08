@@ -1,8 +1,8 @@
+use Account;
 use Block;
 use BlockInner;
 use BlockType;
 use Network;
-use Account;
 
 use hex;
 use serde_json;
@@ -170,7 +170,10 @@ fn deser_state_block() {
     }
     "#;
     let block: Block = serde_json::from_str(json).expect("Failed to deserialize block");
-    assert_eq!(serde_json::from_str::<Block>(json2).expect("Failed to deserialize block2"), block);
+    assert_eq!(
+        serde_json::from_str::<Block>(json2).expect("Failed to deserialize block2"),
+        block
+    );
     assert_eq!(block.ty(), BlockType::State);
     assert_eq!(block.header.work, 0xfc1a2229b17264ba);
     assert!(block.work_valid(Network::Live));
@@ -183,12 +186,27 @@ fn deser_state_block() {
         link,
     } = block.inner
     {
-        assert_eq!(account.to_string(), "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un");
-        assert_eq!(previous.to_string(), "184CF1271B58DA4075CD1329D467345857816EAC5DD4214B0B1CA896DAC704F4");
-        assert_eq!(representative.to_string(), "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or");
+        assert_eq!(
+            account.to_string(),
+            "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un"
+        );
+        assert_eq!(
+            previous.to_string(),
+            "184CF1271B58DA4075CD1329D467345857816EAC5DD4214B0B1CA896DAC704F4"
+        );
+        assert_eq!(
+            representative.to_string(),
+            "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or"
+        );
         assert_eq!(balance, 900000000000000000000000000000);
-        assert_eq!(hex::encode_upper(&link), "1221C72F38AAB95214BBF730BBB5A7792CDC55E5E18F7E4CE747D189B36DE42C");
-        assert_eq!(Account(link).to_string(), "xrb_16j3rwqmjcoscacdqxsiqgttgybeujcydrehhs8ggjyjj8spus3eucy56nba");
+        assert_eq!(
+            hex::encode_upper(&link),
+            "1221C72F38AAB95214BBF730BBB5A7792CDC55E5E18F7E4CE747D189B36DE42C"
+        );
+        assert_eq!(
+            Account(link).to_string(),
+            "xrb_16j3rwqmjcoscacdqxsiqgttgybeujcydrehhs8ggjyjj8spus3eucy56nba"
+        );
     } else {
         panic!("block.inner was not a state");
     }
@@ -214,13 +232,18 @@ fn deser_odd() {
         account,
         previous,
         representative,
-        balance,
-        link,
+        ..
     } = block.inner
     {
-        assert_eq!(account.to_string(), "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un");
+        assert_eq!(
+            account.to_string(),
+            "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un"
+        );
         assert_eq!(previous.0, [0u8; 32]);
-        assert_eq!(representative.to_string(), "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or");
+        assert_eq!(
+            representative.to_string(),
+            "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or"
+        );
     } else {
         panic!("block.inner was not a state");
     }
