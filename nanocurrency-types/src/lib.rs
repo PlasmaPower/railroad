@@ -640,6 +640,15 @@ pub fn work_threshold(network: Network) -> u64 {
     }
 }
 
+pub fn work_value(root: &[u8], work: u64) -> u64 {
+    let mut buf = [0u8; 8];
+    let mut hasher = Blake2b::new(buf.len()).expect("Unsupported hash length");
+    LittleEndian::write_u64(&mut buf, work);
+    hasher.process(&buf);
+    hasher.process(root);
+    hasher.variable_result(&mut buf).unwrap();
+    LittleEndian::read_u64(&buf as _)
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Block {
@@ -673,13 +682,7 @@ impl Block {
     }
 
     pub fn work_value(&self) -> u64 {
-        let mut buf = [0u8; 8];
-        let mut hasher = Blake2b::new(buf.len()).expect("Unsupported hash length");
-        LittleEndian::write_u64(&mut buf, self.header.work);
-        hasher.process(&buf);
-        hasher.process(self.root_bytes() as _);
-        hasher.variable_result(&mut buf).unwrap();
-        LittleEndian::read_u64(&buf as _)
+        work_value(self.root_bytes() as _, self.header.work)
     }
 
     pub fn work_valid(&self, network: Network) -> bool {
