@@ -633,6 +633,14 @@ impl BlockInner {
     }
 }
 
+pub fn work_threshold(network: Network) -> u64 {
+    match network {
+        Network::Live | Network::Beta => 0xffffffc000000000,
+        Network::Test => 0xff00000000000000,
+    }
+}
+
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Block {
     #[serde(flatten)]
@@ -658,11 +666,10 @@ impl Block {
         self.inner.into_root()
     }
 
+    #[deprecated]
+    /// Use global work_threshold function instead
     pub fn work_threshold(&self, network: Network) -> u64 {
-        match network {
-            Network::Live | Network::Beta => 0xffffffc000000000,
-            Network::Test => 0xff00000000000000,
-        }
+        work_threshold(network)
     }
 
     pub fn work_value(&self) -> u64 {
@@ -676,7 +683,7 @@ impl Block {
     }
 
     pub fn work_valid(&self, network: Network) -> bool {
-        self.work_value() > self.work_threshold(network)
+        self.work_value() > work_threshold(network)
     }
 
     pub fn ty(&self) -> BlockType {
