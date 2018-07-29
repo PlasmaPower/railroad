@@ -152,11 +152,51 @@ impl InternalFromHex for BlockHash {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+trait InternalToHex {
+    fn to_hex<S: serde::ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error>;
+}
+
+impl InternalToHex for Signature {
+    fn to_hex<S: serde::ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&hex::encode_upper(&self.to_bytes() as &[u8]))
+    }
+}
+
+impl InternalToHex for u64 {
+    fn to_hex<S: serde::ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut bytes = [0u8; 8];
+        BigEndian::write_u64(&mut bytes, *self);
+        serializer.serialize_str(&hex::encode(&bytes))
+    }
+}
+
+impl InternalToHex for u128 {
+    fn to_hex<S: serde::ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut bytes = [0u8; 16];
+        BigEndian::write_u128(&mut bytes, *self);
+        serializer.serialize_str(&hex::encode_upper(&bytes))
+    }
+}
+
+impl InternalToHex for BlockHash {
+    fn to_hex<S: serde::ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&hex::encode_upper(&self.0))
+    }
+}
+
+impl InternalToHex for [u8; 32] {
+    fn to_hex<S: serde::ser::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&hex::encode_upper(&self))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct BlockHeader {
     #[serde(deserialize_with = "InternalFromHex::from_hex")]
+    #[serde(serialize_with = "InternalToHex::to_hex")]
     pub signature: Signature,
     #[serde(deserialize_with = "InternalFromHex::from_hex")]
+    #[serde(serialize_with = "InternalToHex::to_hex")]
     pub work: u64,
 }
 
@@ -322,6 +362,10 @@ where
     T::from_str(&s).map_err(serde::de::Error::custom)
 }
 
+fn serde_to_str<T: ToString, S: serde::ser::Serializer>(value: &T, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&value.to_string())
+}
+
 fn deserialize_link<'de, D: serde::de::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<[u8; 32], D::Error> {
@@ -338,24 +382,29 @@ fn deserialize_link<'de, D: serde::de::Deserializer<'de>>(
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "lowercase")]
 pub enum BlockInner {
     Send {
         #[serde(deserialize_with = "InternalFromHex::from_hex")]
+        #[serde(serialize_with = "InternalToHex::to_hex")]
         previous: BlockHash,
         #[serde(deserialize_with = "serde_from_str")]
+        #[serde(serialize_with = "serde_to_str")]
         destination: Account,
         /// The balance of the account *after* the send.
         #[serde(deserialize_with = "InternalFromHex::from_hex")]
+        #[serde(serialize_with = "InternalToHex::to_hex")]
         balance: u128,
     },
     Receive {
         #[serde(deserialize_with = "InternalFromHex::from_hex")]
+        #[serde(serialize_with = "InternalToHex::to_hex")]
         previous: BlockHash,
         /// The block we're receiving.
         #[serde(deserialize_with = "InternalFromHex::from_hex")]
+        #[serde(serialize_with = "InternalToHex::to_hex")]
         source: BlockHash,
     },
     /// The first "receive" in an account chain.
@@ -363,31 +412,41 @@ pub enum BlockInner {
     Open {
         /// The block we're receiving.
         #[serde(deserialize_with = "InternalFromHex::from_hex")]
+        #[serde(serialize_with = "InternalToHex::to_hex")]
         source: BlockHash,
         #[serde(deserialize_with = "serde_from_str")]
+        #[serde(serialize_with = "serde_to_str")]
         representative: Account,
         #[serde(deserialize_with = "serde_from_str")]
+        #[serde(serialize_with = "serde_to_str")]
         account: Account,
     },
     /// Changes the representative for an account.
     Change {
         #[serde(deserialize_with = "InternalFromHex::from_hex")]
+        #[serde(serialize_with = "InternalToHex::to_hex")]
         previous: BlockHash,
         #[serde(deserialize_with = "serde_from_str")]
+        #[serde(serialize_with = "serde_to_str")]
         representative: Account,
     },
     /// A universal transaction which contains the account state.
     State {
         #[serde(deserialize_with = "serde_from_str")]
+        #[serde(serialize_with = "serde_to_str")]
         account: Account,
         #[serde(deserialize_with = "InternalFromHex::from_hex")]
+        #[serde(serialize_with = "InternalToHex::to_hex")]
         previous: BlockHash,
         #[serde(deserialize_with = "serde_from_str")]
+        #[serde(serialize_with = "serde_to_str")]
         representative: Account,
         #[serde(deserialize_with = "serde_from_str")]
+        #[serde(serialize_with = "serde_to_str")]
         balance: u128,
         /// Link field contains source block_hash if receiving, destination account if sending
         #[serde(deserialize_with = "deserialize_link")]
+        #[serde(serialize_with = "InternalToHex::to_hex")]
         link: [u8; 32],
     },
 }
@@ -650,7 +709,7 @@ pub fn work_value(root: &[u8], work: u64) -> u64 {
     LittleEndian::read_u64(&buf as _)
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Block {
     #[serde(flatten)]
     pub inner: BlockInner,

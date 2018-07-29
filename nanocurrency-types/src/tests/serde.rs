@@ -8,7 +8,7 @@ use hex;
 use serde_json;
 
 #[test]
-fn deser_send_block() {
+fn send_block() {
     let json = r#"{
         "type": "send",
         "previous": "314BA8D9057678C1F53371C2DB3026C1FAC01EC8E7802FD9A2E8130FC523429E",
@@ -24,16 +24,16 @@ fn deser_send_block() {
     assert!(block.work_valid(Network::Live));
     assert_eq!(hex::encode_upper(&block.header.signature.to_bytes() as &[u8]), "F19CA177EFA8692C8CBF7478CE3213F56E4A85DF760DA7A9E69141849831F8FD79BA9ED89CEC807B690FB4AA42D5008F9DBA7115E63C935401F1F0EFA547BC00");
     if let BlockInner::Send {
-        previous,
-        balance,
-        destination,
+        ref previous,
+        ref balance,
+        ref destination,
     } = block.inner
     {
         assert_eq!(
             previous.to_string(),
             "314BA8D9057678C1F53371C2DB3026C1FAC01EC8E7802FD9A2E8130FC523429E"
         );
-        assert_eq!(balance, 0x0000007E37BE2022C0914B2680000000);
+        assert_eq!(*balance, 0x0000007E37BE2022C0914B2680000000);
         assert_eq!(
             destination.to_string(),
             "xrb_18gmu6engqhgtjnppqam181o5nfhj4sdtgyhy36dan3jr9spt84rzwmktafc"
@@ -41,10 +41,14 @@ fn deser_send_block() {
     } else {
         panic!("block.inner was not a send");
     }
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(json).unwrap(),
+        serde_json::to_value(block).expect("Failed to serialize block")
+    );
 }
 
 #[test]
-fn deser_receive_block() {
+fn receive_block() {
     let json = r#"{
         "type": "receive",
         "previous": "F47B23107E5F34B2CE06F562B5C435DF72A533251CB414C51B2B62A8F63A00E4",
@@ -58,7 +62,7 @@ fn deser_receive_block() {
     assert_eq!(block.header.work, 0x6acb5dd43a38d76a);
     assert!(block.work_valid(Network::Live));
     assert_eq!(hex::encode_upper(&block.header.signature.to_bytes() as &[u8]), "A13FD22527771667D5DFF33D69787D734836A3561D8A490C1F4917A05D77EA09860461D5FBFC99246A4EAB5627F119AD477598E22EE021C4711FACF4F3C80D0E");
-    if let BlockInner::Receive { previous, source } = block.inner {
+    if let BlockInner::Receive { ref previous, ref source } = block.inner {
         assert_eq!(
             previous.to_string(),
             "F47B23107E5F34B2CE06F562B5C435DF72A533251CB414C51B2B62A8F63A00E4"
@@ -70,10 +74,14 @@ fn deser_receive_block() {
     } else {
         panic!("block.inner was not a receive");
     }
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(json).unwrap(),
+        serde_json::to_value(block).expect("Failed to serialize block")
+    );
 }
 
 #[test]
-fn deser_change_block() {
+fn change_block() {
     let json = r#"{
         "type": "change",
         "previous": "F958305C0FF0551421D4ABEDCCF302079D020A0A3833E33F185E2B0415D4567A",
@@ -88,8 +96,8 @@ fn deser_change_block() {
     assert!(block.work_valid(Network::Live));
     assert_eq!(hex::encode_upper(&block.header.signature.to_bytes() as &[u8]), "98B4D56881D9A88B170A6B2976AE21900C26A27F0E2C338D93FDED56183B73D19AA5BEB48E43FCBB8FF8293FDD368CEF50600FECEFD490A0855ED702ED209E04");
     if let BlockInner::Change {
-        previous,
-        representative,
+        ref previous,
+        ref representative,
     } = block.inner
     {
         assert_eq!(
@@ -103,10 +111,14 @@ fn deser_change_block() {
     } else {
         panic!("block.inner was not a change");
     }
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(json).unwrap(),
+        serde_json::to_value(block).expect("Failed to serialize block")
+    );
 }
 
 #[test]
-fn deser_open_block() {
+fn open_block() {
     let json = r#"{
         "type": "open",
         "source": "19D3D919475DEED4696B5D13018151D1AF88B2BD3BCFF048B45031C1F36D1858",
@@ -122,9 +134,9 @@ fn deser_open_block() {
     assert!(block.work_valid(Network::Live));
     assert_eq!(hex::encode_upper(&block.header.signature.to_bytes() as &[u8]), "5974324F8CC42DA56F62FC212A17886BDCB18DE363D04DA84EEDC99CB4A33919D14A2CF9DE9D534FAA6D0B91D01F0622205D898293525E692586C84F2DCF9208");
     if let BlockInner::Open {
-        source,
-        representative,
-        account,
+        ref source,
+        ref representative,
+        ref account,
     } = block.inner
     {
         assert_eq!(
@@ -142,10 +154,14 @@ fn deser_open_block() {
     } else {
         panic!("block.inner was not a open");
     }
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(json).unwrap(),
+        serde_json::to_value(block).expect("Failed to serialize block")
+    );
 }
 
 #[test]
-fn deser_state_block() {
+fn state_block() {
     let json = r#"{
         "type": "state",
         "account": "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
@@ -179,11 +195,11 @@ fn deser_state_block() {
     assert!(block.work_valid(Network::Live));
     assert_eq!(hex::encode_upper(&block.header.signature.to_bytes() as &[u8]), "E7A791BC1AB92C91E3C0FAF37265B3832EE5E3A86070D5AADC734DFFB2788582FE6B2697B7C871BF2ECEC45198C444EA1FF95FCF3922C93B25710B85D0424B0B");
     if let BlockInner::State {
-        account,
-        previous,
-        representative,
-        balance,
-        link,
+        ref account,
+        ref previous,
+        ref representative,
+        ref balance,
+        ref link,
     } = block.inner
     {
         assert_eq!(
@@ -198,18 +214,22 @@ fn deser_state_block() {
             representative.to_string(),
             "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or"
         );
-        assert_eq!(balance, 900000000000000000000000000000);
+        assert_eq!(*balance, 900000000000000000000000000000);
         assert_eq!(
             hex::encode_upper(&link),
             "1221C72F38AAB95214BBF730BBB5A7792CDC55E5E18F7E4CE747D189B36DE42C"
         );
         assert_eq!(
-            Account(link).to_string(),
+            Account(*link).to_string(),
             "xrb_16j3rwqmjcoscacdqxsiqgttgybeujcydrehhs8ggjyjj8spus3eucy56nba"
         );
     } else {
         panic!("block.inner was not a state");
     }
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(json).unwrap(),
+        serde_json::to_value(block).expect("Failed to serialize block")
+    );
 }
 
 #[test]
