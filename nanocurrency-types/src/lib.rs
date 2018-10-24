@@ -321,6 +321,11 @@ impl FromStr for Account {
             return Err(AccountParseError::IncorrectLength);
         }
         let ext_pubkey = ext_pubkey.to_bytes_le().1;
+        if ext_pubkey.len() > 37 {
+            // First character is not a 1 or a 3,
+            // which causes the pubkey to be too long.
+            return Err(AccountParseError::IncorrectLength);
+        }
         let ext_pubkey: Vec<u8> = iter::repeat(0)
             .take(37 - ext_pubkey.len())
             .chain(ext_pubkey.into_iter().rev())
