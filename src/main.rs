@@ -17,7 +17,7 @@ extern crate log;
 extern crate futures;
 use futures::future;
 extern crate tokio;
-use tokio::executor::current_thread;
+use tokio::runtime::current_thread;
 extern crate net2;
 extern crate tokio_io;
 extern crate tokio_timer;
@@ -29,7 +29,6 @@ extern crate ed25519_dalek;
 
 extern crate bytes;
 
-#[macro_use]
 extern crate nanocurrency_types;
 use nanocurrency_types::Network;
 

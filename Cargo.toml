@@ -15,8 +15,7 @@ members = [
 [dependencies]
 blake2 = "0.7"
 clap = "2"
-curve25519-dalek = "0.14"
-ed25519-dalek = "0.6"
+curve25519-dalek = "1"
 env_logger = "0.5"
 futures = "0.1"
 log = "0.4"
@@ -31,3 +30,4 @@ nanocurrency-peering = { version = "0.6", path = "nanocurrency-peering" }
 digest = { version = "0.7", features = ["std"] }
 byteorder = { version = "1", features = ["i128"] }
 net2 = "0.2.32"
+ed25519-dalek = "0.8.1"

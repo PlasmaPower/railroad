@@ -809,5 +809,6 @@ impl Vote {
         self.account
             .as_pubkey()
             .verify::<Blake2b>(&self.get_hash(), &self.signature)
+            .is_ok()
     }
 }

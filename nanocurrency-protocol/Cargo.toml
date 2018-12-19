@@ -10,4 +10,4 @@ repository = "https://github.com/PlasmaPower/railroad"
 byteorder = { version = "1", features = ["i128"] }
 bytes = "0.4"
 tokio-io = "0.1"
-nanocurrency-types = { version = "0.3.6", path = "../nanocurrency-types" }
+nanocurrency-types = { version = "0.3", path = "../nanocurrency-types" }
