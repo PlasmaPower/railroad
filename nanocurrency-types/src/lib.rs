@@ -7,7 +7,7 @@ use std::str;
 use std::str::FromStr;
 
 extern crate blake2;
-use blake2::Blake2b;
+use blake2::{Blake2b, VarBlake2b};
 extern crate digest;
 use digest::{Input, VariableOutput};
 
@@ -242,12 +242,10 @@ impl fmt::Display for Account {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "xrb_")?;
         let mut reverse_chars = Vec::<u8>::new();
-        let mut check_hash = Blake2b::new(5).unwrap();
-        check_hash.process(&self.0 as &[u8]);
-        let mut check = [0u8; 5];
-        check_hash.variable_result(&mut check).unwrap();
+        let mut check_hash = VarBlake2b::new(5).unwrap();
+        check_hash.input(&self.0 as &[u8]);
         let mut ext_addr = self.0.to_vec();
-        ext_addr.extend(check.iter().rev());
+        check_hash.variable_result(|b| ext_addr.extend(b.iter().rev()));
         let mut ext_addr = BigInt::from_bytes_be(num_bigint::Sign::Plus, &ext_addr);
         for _ in 0..60 {
             let n: BigInt = (&ext_addr) % 32; // lower 5 bits
@@ -334,20 +332,20 @@ impl FromStr for Account {
         pubkey_bytes.clone_from_slice(&ext_pubkey[..32]);
         let mut checksum_given = [0u8; 5];
         checksum_given.clone_from_slice(&ext_pubkey[32..]);
-        let mut checksum_calc = [0u8; 5];
-        let mut hasher = Blake2b::new(checksum_calc.len()).unwrap();
-        hasher.process(&pubkey_bytes as &[u8]);
-        hasher
-            .variable_result(&mut checksum_calc as &mut [u8])
-            .unwrap();
-        if checksum_given
-            .into_iter()
-            .rev()
-            .ne(checksum_calc.into_iter())
-        {
-            return Err(AccountParseError::InvalidChecksum);
+        let mut hasher = VarBlake2b::new(5).unwrap();
+        hasher.input(&pubkey_bytes as &[u8]);
+        let mut matches = false;
+        hasher.variable_result(move |checksum_calc| {
+            matches = checksum_given
+                .into_iter()
+                .rev()
+                .eq(checksum_calc.into_iter());
+        });
+        if matches {
+            Err(AccountParseError::InvalidChecksum)
+        } else {
+            Ok(Account(pubkey_bytes))
         }
-        Ok(Account(pubkey_bytes))
     }
 }
 
@@ -518,7 +516,7 @@ struct DigestHasher<'a, D: 'a>(&'a mut D);
 
 impl<'a, D: digest::Input + 'a> Hasher for DigestHasher<'a, D> {
     fn write(&mut self, input: &[u8]) {
-        self.0.process(input);
+        self.0.input(input);
     }
 
     fn finish(&self) -> u64 {
@@ -625,12 +623,11 @@ impl fmt::Display for BlockType {
 
 impl BlockInner {
     pub fn get_hash(&self) -> BlockHash {
-        let mut hasher = Blake2b::new(32).expect("Unsupported hash length");
+        let mut hasher = VarBlake2b::new(32).expect("Unsupported hash length");
         self.hash(&mut DigestHasher(&mut hasher));
         let mut output = BlockHash::default();
         hasher
-            .variable_result(&mut output.0)
-            .expect("Incorrect hash length");
+            .variable_result(|b| output.0.copy_from_slice(b));
         output
     }
 
@@ -705,13 +702,14 @@ pub fn work_threshold(network: Network) -> u64 {
 }
 
 pub fn work_value(root: &[u8], work: u64) -> u64 {
+    let mut hasher = VarBlake2b::new(8).expect("Unsupported hash length");
     let mut buf = [0u8; 8];
-    let mut hasher = Blake2b::new(buf.len()).expect("Unsupported hash length");
     LittleEndian::write_u64(&mut buf, work);
-    hasher.process(&buf);
-    hasher.process(root);
-    hasher.variable_result(&mut buf).unwrap();
-    LittleEndian::read_u64(&buf as _)
+    hasher.input(&buf);
+    hasher.input(root);
+    let mut val = 0;
+    hasher.variable_result(|b| val = LittleEndian::read_u64(b));
+    val
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -796,12 +794,10 @@ impl Hash for Vote {
 
 impl Vote {
     pub fn get_hash(&self) -> [u8; 32] {
-        let mut hasher = Blake2b::new(32).expect("Unsupported hash length");
+        let mut hasher = VarBlake2b::new(32).expect("Unsupported hash length");
         self.hash(&mut DigestHasher(&mut hasher));
         let mut output = [0u8; 32];
-        hasher
-            .variable_result(&mut output)
-            .expect("Incorrect hash length");
+        hasher.variable_result(|b| output.copy_from_slice(b));
         output
     }
 
