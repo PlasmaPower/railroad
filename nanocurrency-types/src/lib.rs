@@ -337,7 +337,7 @@ impl FromStr for Account {
         let mut matches = false;
         hasher.variable_result(move |checksum_calc| {
             matches = checksum_given
-                .into_iter()
+                .iter()
                 .rev()
                 .eq(checksum_calc.into_iter());
         });
