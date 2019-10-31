@@ -62,7 +62,11 @@ fn receive_block() {
     assert_eq!(block.header.work, 0x6acb5dd43a38d76a);
     assert!(block.work_valid(Network::Live));
     assert_eq!(hex::encode_upper(&block.header.signature.to_bytes() as &[u8]), "A13FD22527771667D5DFF33D69787D734836A3561D8A490C1F4917A05D77EA09860461D5FBFC99246A4EAB5627F119AD477598E22EE021C4711FACF4F3C80D0E");
-    if let BlockInner::Receive { ref previous, ref source } = block.inner {
+    if let BlockInner::Receive {
+        ref previous,
+        ref source,
+    } = block.inner
+    {
         assert_eq!(
             previous.to_string(),
             "F47B23107E5F34B2CE06F562B5C435DF72A533251CB414C51B2B62A8F63A00E4"

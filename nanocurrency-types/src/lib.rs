@@ -336,10 +336,7 @@ impl FromStr for Account {
         hasher.input(&pubkey_bytes as &[u8]);
         let mut matches = false;
         hasher.variable_result(move |checksum_calc| {
-            matches = checksum_given
-                .iter()
-                .rev()
-                .eq(checksum_calc.into_iter());
+            matches = checksum_given.iter().rev().eq(checksum_calc.into_iter());
         });
         if matches {
             Err(AccountParseError::InvalidChecksum)
@@ -365,7 +362,10 @@ where
     T::from_str(&s).map_err(serde::de::Error::custom)
 }
 
-fn serde_to_str<T: ToString, S: serde::ser::Serializer>(value: &T, serializer: S) -> Result<S::Ok, S::Error> {
+fn serde_to_str<T: ToString, S: serde::ser::Serializer>(
+    value: &T,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&value.to_string())
 }
 
@@ -626,8 +626,7 @@ impl BlockInner {
         let mut hasher = VarBlake2b::new(32).expect("Unsupported hash length");
         self.hash(&mut DigestHasher(&mut hasher));
         let mut output = BlockHash::default();
-        hasher
-            .variable_result(|b| output.0.copy_from_slice(b));
+        hasher.variable_result(|b| output.0.copy_from_slice(b));
         output
     }
 
