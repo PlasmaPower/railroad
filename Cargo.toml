@@ -30,4 +30,4 @@ nanocurrency-peering = { version = "0.6", path = "nanocurrency-peering" }
 digest = { version = "0.7", features = ["std"] }
 byteorder = { version = "1", features = ["i128"] }
 net2 = "0.2.32"
-ed25519-dalek = "0.8.1"
+ed25519-dalek = "0.9"
