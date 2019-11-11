@@ -7,8 +7,10 @@ use std::net::SocketAddrV6;
 extern crate byteorder;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 
-extern crate tokio_io;
-use tokio_io::codec;
+extern crate ed25519_dalek;
+use ed25519_dalek::PublicKey;
+
+extern crate tokio_codec;
 
 extern crate bytes;
 use bytes::{BufMut, BytesMut};
@@ -19,9 +21,12 @@ use nanocurrency_types::*;
 #[cfg(test)]
 mod tests;
 
-const NET_VERSION: u8 = 0x07;
-const NET_VERSION_MAX: u8 = 0x07;
+const NET_VERSION: u8 = 0x10;
+const NET_VERSION_MAX: u8 = 0x10;
 const NET_VERSION_MIN: u8 = 0x01;
+
+const NODE_ID_HANDSHAKE_QUERY_FLAG: u16 = 1 << 0;
+const NODE_ID_HANDSHAKE_RESPONSE_FLAG: u16 = 1 << 1;
 
 trait BufMutExt: BufMut {
     fn put_i128_le(&mut self, n: i128) {
@@ -69,6 +74,7 @@ pub enum Message {
     Publish(Block),
     ConfirmReq(Block),
     ConfirmAck(Vote),
+    NodeIdHandshake(Option<[u8; 32]>, Option<(PublicKey, Signature)>),
 }
 
 pub struct NanoCurrencyCodec;
@@ -150,7 +156,8 @@ impl NanoCurrencyCodec {
         };
         let mut signature = [0u8; 64];
         cursor.read_exact(&mut signature)?;
-        let signature = Signature::from_bytes(&signature).unwrap();
+        let signature = Signature::from_bytes(&signature)
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "bad signature"))?;
         let work;
         if block_ty >= 6 {
             // New block types have work in big endian
@@ -251,7 +258,7 @@ impl NanoCurrencyCodec {
 // bulk_push    7
 // frontier_req 8
 
-impl codec::Decoder for NanoCurrencyCodec {
+impl tokio_codec::Decoder for NanoCurrencyCodec {
     type Item = (MessageHeader, Message);
     type Error = io::Error;
 
@@ -333,6 +340,30 @@ impl codec::Decoder for NanoCurrencyCodec {
                     block,
                 })
             }
+            10 => {
+                // node_id_handshake
+                let query = if header.extensions & NODE_ID_HANDSHAKE_QUERY_FLAG != 0 {
+                    let mut query = [0u8; 32];
+                    cursor.read_exact(&mut query)?;
+                    Some(query)
+                } else {
+                    None
+                };
+                let response = if header.extensions & NODE_ID_HANDSHAKE_RESPONSE_FLAG != 0 {
+                    let mut pubkey = [0u8; 32];
+                    cursor.read_exact(&mut pubkey)?;
+                    let pubkey = PublicKey::from_bytes(&pubkey)
+                        .map_err(|_| io::Error::new(io::ErrorKind::Other, "bad pubkey"))?;
+                    let mut signature = [0u8; 64];
+                    cursor.read_exact(&mut signature)?;
+                    let signature = Signature::from_bytes(&signature)
+                        .map_err(|_| io::Error::new(io::ErrorKind::Other, "bad signature"))?;
+                    Some((pubkey, signature))
+                } else {
+                    None
+                };
+                Message::NodeIdHandshake(query, response)
+            }
             6 | 7 | 8 => {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
@@ -350,7 +381,7 @@ impl codec::Decoder for NanoCurrencyCodec {
     }
 }
 
-impl codec::Encoder for NanoCurrencyCodec {
+impl tokio_codec::Encoder for NanoCurrencyCodec {
     type Item = (Network, Message);
     type Error = io::Error;
 
@@ -399,6 +430,28 @@ impl codec::Encoder for NanoCurrencyCodec {
                 buf.put_slice(&signature.to_bytes());
                 buf.put_u64_le(sequence);
                 Self::write_block(buf, block);
+            }
+            Message::NodeIdHandshake(query, response) => {
+                buf.put_slice(&[10]);
+                let mut flags = 0;
+                let mut len = 0;
+                if query.is_some() {
+                    flags |= NODE_ID_HANDSHAKE_QUERY_FLAG;
+                    len += 32;
+                }
+                if response.is_some() {
+                    flags |= NODE_ID_HANDSHAKE_RESPONSE_FLAG;
+                    len += 32 + 64;
+                }
+                buf.put_u16_le(flags);
+                buf.reserve(len);
+                if let Some(query) = query {
+                    buf.put_slice(&query);
+                }
+                if let Some(response) = response {
+                    buf.put_slice(&response.0.to_bytes());
+                    buf.put_slice(&response.1.to_bytes());
+                }
             }
         }
         Ok(())

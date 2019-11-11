@@ -1,7 +1,9 @@
-use std::net::SocketAddrV6;
 use std::net::Ipv4Addr;
+use std::net::SocketAddrV6;
 
-use tokio_io::codec::{Decoder, Encoder};
+use ed25519_dalek::PublicKey;
+
+use tokio_codec::{Decoder, Encoder};
 
 use bytes::BytesMut;
 
@@ -111,4 +113,17 @@ fn confirm_ack() {
             block: block.clone(),
         }));
     }
+}
+
+#[test]
+fn node_id_handshake() {
+    let query = [1u8; 32];
+    let response = (
+        PublicKey::from_bytes(&[2u8; 32]).unwrap(),
+        Signature::from_bytes(&[3u8; 64]).unwrap(),
+    );
+    encode_decode(Message::NodeIdHandshake(None, None));
+    encode_decode(Message::NodeIdHandshake(Some(query), None));
+    encode_decode(Message::NodeIdHandshake(None, Some(response)));
+    encode_decode(Message::NodeIdHandshake(Some(query), Some(response)));
 }
