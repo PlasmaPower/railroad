@@ -12,7 +12,7 @@ fn send_block() {
     let json = r#"{
         "type": "send",
         "previous": "314BA8D9057678C1F53371C2DB3026C1FAC01EC8E7802FD9A2E8130FC523429E",
-        "destination": "xrb_18gmu6engqhgtjnppqam181o5nfhj4sdtgyhy36dan3jr9spt84rzwmktafc",
+        "destination": "nano_18gmu6engqhgtjnppqam181o5nfhj4sdtgyhy36dan3jr9spt84rzwmktafc",
         "balance": "0000007E37BE2022C0914B2680000000",
         "work": "478563b2d9facfd4",
         "signature": "F19CA177EFA8692C8CBF7478CE3213F56E4A85DF760DA7A9E69141849831F8FD79BA9ED89CEC807B690FB4AA42D5008F9DBA7115E63C935401F1F0EFA547BC00"
@@ -36,7 +36,7 @@ fn send_block() {
         assert_eq!(*balance, 0x0000007E37BE2022C0914B2680000000);
         assert_eq!(
             destination.to_string(),
-            "xrb_18gmu6engqhgtjnppqam181o5nfhj4sdtgyhy36dan3jr9spt84rzwmktafc"
+            "nano_18gmu6engqhgtjnppqam181o5nfhj4sdtgyhy36dan3jr9spt84rzwmktafc"
         );
     } else {
         panic!("block.inner was not a send");
@@ -89,7 +89,7 @@ fn change_block() {
     let json = r#"{
         "type": "change",
         "previous": "F958305C0FF0551421D4ABEDCCF302079D020A0A3833E33F185E2B0415D4567A",
-        "representative": "xrb_18gmu6engqhgtjnppqam181o5nfhj4sdtgyhy36dan3jr9spt84rzwmktafc",
+        "representative": "nano_18gmu6engqhgtjnppqam181o5nfhj4sdtgyhy36dan3jr9spt84rzwmktafc",
         "work": "55e5b7a83edc3f4f",
         "signature": "98B4D56881D9A88B170A6B2976AE21900C26A27F0E2C338D93FDED56183B73D19AA5BEB48E43FCBB8FF8293FDD368CEF50600FECEFD490A0855ED702ED209E04"
     }
@@ -110,7 +110,7 @@ fn change_block() {
         );
         assert_eq!(
             representative.to_string(),
-            "xrb_18gmu6engqhgtjnppqam181o5nfhj4sdtgyhy36dan3jr9spt84rzwmktafc"
+            "nano_18gmu6engqhgtjnppqam181o5nfhj4sdtgyhy36dan3jr9spt84rzwmktafc"
         );
     } else {
         panic!("block.inner was not a change");
@@ -126,8 +126,8 @@ fn open_block() {
     let json = r#"{
         "type": "open",
         "source": "19D3D919475DEED4696B5D13018151D1AF88B2BD3BCFF048B45031C1F36D1858",
-        "representative": "xrb_1hza3f7wiiqa7ig3jczyxj5yo86yegcmqk3criaz838j91sxcckpfhbhhra1",
-        "account": "xrb_3kdbxitaj7f6mrir6miiwtw4muhcc58e6tn5st6rfaxsdnb7gr4roudwn951",
+        "representative": "nano_1hza3f7wiiqa7ig3jczyxj5yo86yegcmqk3criaz838j91sxcckpfhbhhra1",
+        "account": "nano_3kdbxitaj7f6mrir6miiwtw4muhcc58e6tn5st6rfaxsdnb7gr4roudwn951",
         "work": "4ec76c9bda2325ed",
         "signature": "5974324F8CC42DA56F62FC212A17886BDCB18DE363D04DA84EEDC99CB4A33919D14A2CF9DE9D534FAA6D0B91D01F0622205D898293525E692586C84F2DCF9208"
     }
@@ -149,11 +149,11 @@ fn open_block() {
         );
         assert_eq!(
             representative.to_string(),
-            "xrb_1hza3f7wiiqa7ig3jczyxj5yo86yegcmqk3criaz838j91sxcckpfhbhhra1"
+            "nano_1hza3f7wiiqa7ig3jczyxj5yo86yegcmqk3criaz838j91sxcckpfhbhhra1"
         );
         assert_eq!(
             account.to_string(),
-            "xrb_3kdbxitaj7f6mrir6miiwtw4muhcc58e6tn5st6rfaxsdnb7gr4roudwn951"
+            "nano_3kdbxitaj7f6mrir6miiwtw4muhcc58e6tn5st6rfaxsdnb7gr4roudwn951"
         );
     } else {
         panic!("block.inner was not a open");
@@ -168,23 +168,23 @@ fn open_block() {
 fn state_block() {
     let json = r#"{
         "type": "state",
-        "account": "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
+        "account": "nano_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
         "previous": "184CF1271B58DA4075CD1329D467345857816EAC5DD4214B0B1CA896DAC704F4",
-        "representative": "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
+        "representative": "nano_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
         "balance": "900000000000000000000000000000",
         "link": "1221C72F38AAB95214BBF730BBB5A7792CDC55E5E18F7E4CE747D189B36DE42C",
         "signature": "E7A791BC1AB92C91E3C0FAF37265B3832EE5E3A86070D5AADC734DFFB2788582FE6B2697B7C871BF2ECEC45198C444EA1FF95FCF3922C93B25710B85D0424B0B",
         "work": "fc1a2229b17264ba"
     }
     "#;
-    // In this, link is an account
+    // In this, link is an account, and account is xrb_ prefixed
     let json2 = r#"{
         "type": "state",
         "account": "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
         "previous": "184CF1271B58DA4075CD1329D467345857816EAC5DD4214B0B1CA896DAC704F4",
-        "representative": "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
+        "representative": "nano_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
         "balance": "900000000000000000000000000000",
-        "link": "xrb_16j3rwqmjcoscacdqxsiqgttgybeujcydrehhs8ggjyjj8spus3eucy56nba",
+        "link": "nano_16j3rwqmjcoscacdqxsiqgttgybeujcydrehhs8ggjyjj8spus3eucy56nba",
         "signature": "E7A791BC1AB92C91E3C0FAF37265B3832EE5E3A86070D5AADC734DFFB2788582FE6B2697B7C871BF2ECEC45198C444EA1FF95FCF3922C93B25710B85D0424B0B",
         "work": "fc1a2229b17264ba"
     }
@@ -208,7 +208,7 @@ fn state_block() {
     {
         assert_eq!(
             account.to_string(),
-            "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un"
+            "nano_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un"
         );
         assert_eq!(
             previous.to_string(),
@@ -216,7 +216,7 @@ fn state_block() {
         );
         assert_eq!(
             representative.to_string(),
-            "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or"
+            "nano_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or"
         );
         assert_eq!(*balance, 900000000000000000000000000000);
         assert_eq!(
@@ -225,7 +225,7 @@ fn state_block() {
         );
         assert_eq!(
             Account(*link).to_string(),
-            "xrb_16j3rwqmjcoscacdqxsiqgttgybeujcydrehhs8ggjyjj8spus3eucy56nba"
+            "nano_16j3rwqmjcoscacdqxsiqgttgybeujcydrehhs8ggjyjj8spus3eucy56nba"
         );
     } else {
         panic!("block.inner was not a state");
@@ -261,21 +261,21 @@ fn deser_odd() {
     {
         assert_eq!(
             account.to_string(),
-            "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un"
+            "nano_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un"
         );
         assert_eq!(previous.0, [0u8; 32]);
         assert_eq!(
             representative.to_string(),
-            "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or"
+            "nano_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or"
         );
     } else {
         panic!("block.inner was not a state");
     }
     let json = r#"{
         "type": "state",
-        "account": "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
+        "account": "nano_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
         "previous": "0",
-        "representative": "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
+        "representative": "nano_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
         "balance": "900000000000000000000000000000",
         "link": "1221C72F38AAB95214BBF730BBB5A7792CDC55E5E18F7E4CE747D189B36DE42C",
         "signature": "E7A791BC1AB92C91E3C0FAF37265B3832EE5E3A86070D5AADC734DFFB2788582FE6B2697B7C871BF2ECEC45198C444EA1FF95FCF3922C93B25710B85D0424B0B",
@@ -285,9 +285,9 @@ fn deser_odd() {
     assert!(serde_json::from_str::<Block>(json).is_err());
     let json = r#"{
         "type": "state",
-        "account": "xrb_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
+        "account": "nano_3oumbo3aztgyn44sm75zkkz6s45ctxyhwfpfscg4o5ibxfer8eq1yrthh1un",
         "previous": "0",
-        "representative": "xrb_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
+        "representative": "nano_3rw4un6ys57hrb39sy1qx8qy5wukst1iiponztrz9qiz6qqa55kxzx4491or",
         "balance": "900000000000000000000000000000",
         "link": "1221C72F38AAB95214BBF730BBB5A7792CDC55E5E18F7E4CE747D189B36DE42C",
         "signature": "E7A791BC1AB92C91E3C0FAF37265B3832EE5E3A86070D5AADC734DFFB2788582FE6B2697B7C871BF2ECEC45198C444EA1FF95FCF3922C93B25710B85D0424B0B",

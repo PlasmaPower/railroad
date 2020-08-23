@@ -10,6 +10,8 @@ repository = "https://github.com/PlasmaPower/railroad"
 futures = "0.1"
 tokio = "0.1"
 net2 = "0.2"
+#nanocurrency-types = { path = "../nanocurrency-types", version = "0.3" }
+#nanocurrency-protocol = { path = "../nanocurrency-protocol", version = "0.6" }
 nanocurrency-types = "0.3"
 nanocurrency-protocol = "0.5"
 log = "0.4"

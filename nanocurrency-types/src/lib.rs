@@ -240,7 +240,7 @@ impl fmt::Debug for Account {
 
 impl fmt::Display for Account {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "xrb_")?;
+        write!(f, "nano_")?;
         let mut reverse_chars = Vec::<u8>::new();
         let mut check_hash = VarBlake2b::new(5).unwrap();
         check_hash.input(&self.0 as &[u8]);
@@ -335,13 +335,13 @@ impl FromStr for Account {
         let mut hasher = VarBlake2b::new(5).unwrap();
         hasher.input(&pubkey_bytes as &[u8]);
         let mut matches = false;
-        hasher.variable_result(move |checksum_calc| {
+        hasher.variable_result(|checksum_calc| {
             matches = checksum_given.iter().rev().eq(checksum_calc.into_iter());
         });
         if matches {
-            Err(AccountParseError::InvalidChecksum)
-        } else {
             Ok(Account(pubkey_bytes))
+        } else {
+            Err(AccountParseError::InvalidChecksum)
         }
     }
 }

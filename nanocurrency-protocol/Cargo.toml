@@ -10,5 +10,5 @@ repository = "https://github.com/PlasmaPower/railroad"
 byteorder = { version = "1", features = ["i128"] }
 bytes = "0.4"
 tokio-codec = "0.2.0-alpha.5"
-nanocurrency-types = { version = "0.3", path = "../nanocurrency-types" }
+nanocurrency-types = { path = "../nanocurrency-types", version = "0.3" }
 ed25519-dalek = "0.9"
