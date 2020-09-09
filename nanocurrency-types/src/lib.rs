@@ -774,17 +774,38 @@ impl PartialEq for Block {
 
 impl Eq for Block {}
 
+/// What the vote is for.
+/// Note: internally, the official node can have mixed types in a vote.
+/// However, over the wire, this isn't possible.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VoteInner {
+    Block(Block),
+    Hashes(Vec<BlockHash>),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Vote {
     pub account: Account,
     pub signature: Signature,
     pub sequence: u64,
-    pub block: Block,
+    pub inner: VoteInner,
 }
+
+const VOTE_HASH_PREFIX: &[u8] = b"vote ";
 
 impl Hash for Vote {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write(&self.block.get_hash().0);
+        match &self.inner {
+            VoteInner::Block(block) => {
+                state.write(&block.get_hash().0);
+            }
+            VoteInner::Hashes(hashes) => {
+                state.write(&VOTE_HASH_PREFIX);
+                for hash in hashes {
+                    state.write(&hash.0);
+                }
+            }
+        }
         let mut seq_bytes = [0u8; 8];
         LittleEndian::write_u64(&mut seq_bytes, self.sequence);
         state.write(&seq_bytes);

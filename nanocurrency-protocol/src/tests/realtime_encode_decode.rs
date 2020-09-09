@@ -3,7 +3,7 @@ use std::net::SocketAddrV6;
 
 use ed25519_dalek::PublicKey;
 
-use tokio_codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder};
 
 use bytes::BytesMut;
 
@@ -63,15 +63,14 @@ fn get_test_blocks() -> Vec<Block> {
 }
 
 fn encode_decode(msg: Message) -> Message {
-    let mut codec = NanoCurrencyCodec;
+    let mut codec = NanoCurrencyCodec(Network::Beta);
     let mut bytes = BytesMut::new();
-    let network = Network::Beta;
-    assert!(codec.encode((network, msg.clone()), &mut bytes).is_ok());
+    assert!(codec.encode(msg.clone(), &mut bytes).is_ok());
     let decode = codec
         .decode(&mut bytes)
         .expect("Failed to decode generated message")
         .expect("Codec returned no message");
-    assert_eq!(decode.0.network, network);
+    assert_eq!(decode.0.network, Network::Beta);
     assert_eq!(decode.1, msg);
     decode.1
 }
@@ -105,14 +104,22 @@ fn confirm_req() {
 
 #[test]
 fn confirm_ack() {
+    let mut hashes = Vec::new();
     for block in get_test_blocks() {
+        hashes.push(block.get_hash());
         encode_decode(Message::ConfirmAck(Vote {
             account: Account([5; 32]),
             signature: Signature::from_bytes(&[6u8; 64] as _).unwrap(),
             sequence: 123456,
-            block: block.clone(),
+            inner: VoteInner::Block(block.clone()),
         }));
     }
+    encode_decode(Message::ConfirmAck(Vote {
+        account: Account([10; 32]),
+        signature: Signature::from_bytes(&[12u8; 64] as _).unwrap(),
+        sequence: 6545321,
+        inner: VoteInner::Hashes(hashes),
+    }));
 }
 
 #[test]

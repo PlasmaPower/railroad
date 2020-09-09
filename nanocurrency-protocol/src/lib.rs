@@ -1,6 +1,6 @@
+use std::convert::TryFrom;
 use std::io;
 use std::io::prelude::*;
-use std::io::Cursor;
 use std::net;
 use std::net::SocketAddrV6;
 
@@ -10,10 +10,10 @@ use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 extern crate ed25519_dalek;
 use ed25519_dalek::PublicKey;
 
-extern crate tokio_codec;
+extern crate tokio_util;
 
 extern crate bytes;
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 
 extern crate nanocurrency_types;
 use nanocurrency_types::*;
@@ -21,8 +21,8 @@ use nanocurrency_types::*;
 #[cfg(test)]
 mod tests;
 
-const NET_VERSION: u8 = 0x10;
-const NET_VERSION_MAX: u8 = 0x10;
+const NET_VERSION: u8 = 0x12;
+const NET_VERSION_MAX: u8 = 0x12;
 const NET_VERSION_MIN: u8 = 0x01;
 
 const NODE_ID_HANDSHAKE_QUERY_FLAG: u16 = 1 << 0;
@@ -73,11 +73,15 @@ pub enum Message {
     Keepalive([SocketAddrV6; 8]),
     Publish(Block),
     ConfirmReq(Block),
+    /// Contains an array of (hash, root)
+    ConfirmReqHashes(Vec<(BlockHash, [u8; 32])>),
     ConfirmAck(Vote),
     NodeIdHandshake(Option<[u8; 32]>, Option<(PublicKey, Signature)>),
+    TelemetryReq,
+    // TODO TelemetryAck
 }
 
-pub struct NanoCurrencyCodec;
+pub struct NanoCurrencyCodec(pub Network);
 
 impl NanoCurrencyCodec {
     pub fn read_block<C: io::Read>(cursor: &mut C, block_ty: u8) -> io::Result<Block> {
@@ -169,13 +173,13 @@ impl NanoCurrencyCodec {
         Ok(Block { header, inner })
     }
 
-    pub fn block_type_num(block: &Block) -> u8 {
-        match block.inner {
-            BlockInner::Send { .. } => 2,
-            BlockInner::Receive { .. } => 3,
-            BlockInner::Open { .. } => 4,
-            BlockInner::Change { .. } => 5,
-            BlockInner::State { .. } => 6,
+    pub fn block_type_num(ty: BlockType) -> u8 {
+        match ty {
+            BlockType::Send => 2,
+            BlockType::Receive => 3,
+            BlockType::Open => 4,
+            BlockType::Change => 5,
+            BlockType::State => 6,
         }
     }
 
@@ -223,14 +227,14 @@ impl NanoCurrencyCodec {
                 buf.put_slice(&account.0);
                 buf.put_slice(&previous.0);
                 buf.put_slice(&representative.0);
-                buf.put_u128_be(balance);
+                buf.put_u128(balance);
                 buf.put_slice(&link as &[u8]);
                 work_big_endian = true;
             }
         };
         buf.put_slice(&block.header.signature.to_bytes() as &[u8]);
         if work_big_endian {
-            buf.put_u64_be(block.header.work);
+            buf.put_u64(block.header.work);
         } else {
             buf.put_u64_le(block.header.work);
         }
@@ -243,27 +247,8 @@ impl NanoCurrencyCodec {
             Network::Live => b'C',
         }
     }
-}
 
-// Message types:
-// invalid      0
-// not_a_type   1
-// keepalive    2
-// publish      3
-// confirm_req  4
-// confirm_ack  5
-//
-// Bootstrap message types:
-// bulk_pull    6
-// bulk_push    7
-// frontier_req 8
-
-impl tokio_codec::Decoder for NanoCurrencyCodec {
-    type Item = (MessageHeader, Message);
-    type Error = io::Error;
-
-    fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<Self::Item>> {
-        let mut cursor = Cursor::new(buf);
+    fn decode_inner<R: Read>(&self, mut cursor: R) -> io::Result<(MessageHeader, Message)> {
         if cursor.read_u8()? != b'R' {
             return Err(io::Error::new(io::ErrorKind::Other, "invalid magic number"));
         }
@@ -275,9 +260,12 @@ impl tokio_codec::Decoder for NanoCurrencyCodec {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
                     "invalid network indicator",
-                ))
+                ));
             }
         };
+        if network != self.0 {
+            return Err(io::Error::new(io::ErrorKind::Other, "different network"));
+        }
         let version_max = cursor.read_u8()?;
         let version = cursor.read_u8()?;
         let version_min = cursor.read_u8()?;
@@ -321,7 +309,26 @@ impl tokio_codec::Decoder for NanoCurrencyCodec {
             4 => {
                 // confirm_req
                 let ty = (header.extensions & 0x0f00) >> 8;
-                Message::ConfirmReq(Self::read_block(&mut cursor, ty as u8)?)
+                if ty == 1 {
+                    let count = usize::from((header.extensions & 0xf000) >> 12);
+                    let mut hashes = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        let mut hash = BlockHash::default();
+                        let mut root = [0u8; 32];
+                        cursor.read_exact(&mut hash.0)?;
+                        cursor.read_exact(&mut root)?;
+                        if hash == BlockHash::default() && root == [0; 32] {
+                            return Err(io::Error::new(
+                                io::ErrorKind::Other,
+                                "zero hash and root requested in confirm_req",
+                            ));
+                        }
+                        hashes.push((hash, root));
+                    }
+                    Message::ConfirmReqHashes(hashes)
+                } else {
+                    Message::ConfirmReq(Self::read_block(&mut cursor, ty as u8)?)
+                }
             }
             5 => {
                 // confirm_ack
@@ -332,12 +339,24 @@ impl tokio_codec::Decoder for NanoCurrencyCodec {
                 cursor.read_exact(&mut signature)?;
                 let signature = Signature::from_bytes(&signature).unwrap();
                 let sequence = cursor.read_u64::<LittleEndian>()?;
-                let block = Self::read_block(&mut cursor, ty as u8)?;
+                let inner = if ty == 1 {
+                    let count = usize::from((header.extensions & 0xf000) >> 12);
+                    let mut hashes = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        let mut hash = BlockHash::default();
+                        cursor.read_exact(&mut hash.0)?;
+                        hashes.push(hash);
+                    }
+                    VoteInner::Hashes(hashes)
+                } else {
+                    let block = Self::read_block(&mut cursor, ty as u8)?;
+                    VoteInner::Block(block)
+                };
                 Message::ConfirmAck(Vote {
                     account,
                     signature,
                     sequence,
-                    block,
+                    inner,
                 })
             }
             10 => {
@@ -364,37 +383,71 @@ impl tokio_codec::Decoder for NanoCurrencyCodec {
                 };
                 Message::NodeIdHandshake(query, response)
             }
+            12 => {
+                // telemetry_req
+                Message::TelemetryReq
+            }
             6 | 7 | 8 => {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
                     "bootstrap message sent over UDP",
                 ))
             }
-            _ => {
+            x => {
                 return Err(io::Error::new(
                     io::ErrorKind::Other,
-                    "unrecognized message type",
+                    format!("unrecognized message type {}", x),
                 ))
             }
         };
-        Ok(Some((header, message)))
+        Ok((header, message))
     }
 }
 
-impl tokio_codec::Encoder for NanoCurrencyCodec {
-    type Item = (Network, Message);
+// Message types:
+// invalid      0
+// not_a_type   1
+// keepalive    2
+// publish      3
+// confirm_req  4
+// confirm_ack  5
+//
+// Bootstrap message types:
+// bulk_pull    6
+// bulk_push    7
+// frontier_req 8
+
+impl tokio_util::codec::Decoder for NanoCurrencyCodec {
+    type Item = (MessageHeader, Message);
     type Error = io::Error;
 
-    fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
+    fn decode(&mut self, buf: &mut BytesMut) -> io::Result<Option<Self::Item>> {
+        let mut cursor = io::Cursor::new(&buf);
+        match self.decode_inner(&mut cursor) {
+            Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => Ok(None),
+            Err(err) => Err(err),
+            Ok(message) => {
+                let read = cursor.position() as usize;
+                buf.advance(read);
+                Ok(Some(message))
+            }
+        }
+    }
+}
+
+impl tokio_util::codec::Encoder<Message> for NanoCurrencyCodec {
+    type Error = io::Error;
+
+    fn encode(&mut self, msg: Message, buf: &mut BytesMut) -> io::Result<()> {
         buf.reserve(8); // header (including extensions)
         buf.put_slice(&[
             b'R',
-            Self::network_magic_byte(msg.0),
+            Self::network_magic_byte(self.0),
             NET_VERSION_MAX,
             NET_VERSION,
             NET_VERSION_MIN,
         ]);
-        match msg.1 {
+        match msg {
             Message::Keepalive(peers) => {
                 buf.put_slice(&[2]);
                 buf.put_slice(&[0, 0]); // extensions
@@ -406,30 +459,71 @@ impl tokio_codec::Encoder for NanoCurrencyCodec {
             }
             Message::Publish(block) => {
                 buf.put_slice(&[3]);
-                let type_num = Self::block_type_num(&block) as u16;
+                let type_num = Self::block_type_num(block.ty()) as u16;
                 buf.put_u16_le((type_num & 0x0f) << 8);
                 Self::write_block(buf, block);
             }
             Message::ConfirmReq(block) => {
                 buf.put_slice(&[4]);
-                let type_num = Self::block_type_num(&block) as u16;
+                let type_num = Self::block_type_num(block.ty()) as u16;
                 buf.put_u16_le((type_num & 0x0f) << 8);
                 Self::write_block(buf, block);
+            }
+            Message::ConfirmReqHashes(hashes) => {
+                let hashes_len = match u16::try_from(hashes.len()) {
+                    Ok(x) if x < 16 => x,
+                    _ => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::Other,
+                            "attempted to send a confirm_req with more than 16 hashes and roots",
+                        ));
+                    }
+                };
+                buf.put_slice(&[4]);
+                buf.put_u16_le((1 << 8) | (hashes_len << 12));
+                buf.reserve(hashes.len() * 64);
+                for (hash, root) in hashes {
+                    buf.put_slice(&hash.0);
+                    buf.put_slice(&root);
+                }
             }
             Message::ConfirmAck(Vote {
                 account,
                 signature,
                 sequence,
-                block,
+                inner,
             }) => {
                 buf.put_slice(&[5]);
-                let type_num = Self::block_type_num(&block) as u16;
-                buf.put_u16_le((type_num & 0x0f) << 8);
-                buf.reserve(32 + 64 + 8);
-                buf.put_slice(&account.0);
-                buf.put_slice(&signature.to_bytes());
-                buf.put_u64_le(sequence);
-                Self::write_block(buf, block);
+                match inner {
+                    VoteInner::Block(block) => {
+                        let type_num = Self::block_type_num(block.ty()) as u16;
+                        buf.put_u16_le((type_num & 0x0f) << 8);
+                        buf.reserve(32 + 64 + 8);
+                        buf.put_slice(&account.0);
+                        buf.put_slice(&signature.to_bytes());
+                        buf.put_u64_le(sequence);
+                        Self::write_block(buf, block);
+                    }
+                    VoteInner::Hashes(hashes) => {
+                        let hashes_len = match u16::try_from(hashes.len()) {
+                            Ok(x) if x < 16 => x,
+                            _ => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::Other,
+                                    "attempted to send a vote with more than 16 hashes",
+                                ));
+                            }
+                        };
+                        buf.put_u16_le((1 << 8) | (hashes_len << 12));
+                        buf.reserve(32 + 64 + 8 + (hashes.len() * 32));
+                        buf.put_slice(&account.0);
+                        buf.put_slice(&signature.to_bytes());
+                        buf.put_u64_le(sequence);
+                        for hash in hashes {
+                            buf.put_slice(&hash.0);
+                        }
+                    }
+                }
             }
             Message::NodeIdHandshake(query, response) => {
                 buf.put_slice(&[10]);
@@ -452,6 +546,10 @@ impl tokio_codec::Encoder for NanoCurrencyCodec {
                     buf.put_slice(&response.0.to_bytes());
                     buf.put_slice(&response.1.to_bytes());
                 }
+            }
+            Message::TelemetryReq => {
+                buf.put_slice(&[12]);
+                buf.put_slice(&[0, 0]);
             }
         }
         Ok(())
