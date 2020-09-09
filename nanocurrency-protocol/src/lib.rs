@@ -405,17 +405,19 @@ impl NanoCurrencyCodec {
 }
 
 // Message types:
-// invalid      0
-// not_a_type   1
-// keepalive    2
-// publish      3
-// confirm_req  4
-// confirm_ack  5
+// invalid            0
+// not_a_type         1
+// keepalive          2
+// publish            3
+// confirm_req        4
+// confirm_ack        5
+// node_id_handshake 10
+// telemetry_req     12
 //
 // Bootstrap message types:
-// bulk_pull    6
-// bulk_push    7
-// frontier_req 8
+// bulk_pull          6
+// bulk_push          7
+// frontier_req       8
 
 impl tokio_util::codec::Decoder for NanoCurrencyCodec {
     type Item = (MessageHeader, Message);
